@@ -38,7 +38,7 @@ def process_smiles_polar(doc, results):
             "mean_polarisability": 0.0
         }
     mean_polarisability = evaluate_answer(answer, df, "polarisability", doc)
-    eval_logger.info("Mean Polarisability: " + str(mean_polarisability))
+    # eval_logger.info("Mean Polarisability: " + str(mean_polarisability))
     return {
         "mean_polarisability": mean_polarisability
     }
@@ -57,8 +57,8 @@ def load_dataset():
 
         subprocess.run(['wget', url, '-P', output_directory])
         eval_logger.info(f"File downloaded, saved in: {output_path}")
-    else:
-        eval_logger.info(f"File '{output_path}' already exists, skipping download.")
+    # else:
+    #     eval_logger.info(f"File '{output_path}' already exists, skipping download.")
     
     df = pd.read_csv(output_path)
     return df
@@ -119,6 +119,7 @@ def evaluate_answer(answer, df, porp, doc):
     if(df is None):
         return 0.0
     else:
+        eval_logger.info("TMCs found in space: " + str(df))
         if(len(df) == 5):
             return df[porp].mean()
         elif(len(df) < 5):
