@@ -98,7 +98,7 @@ doc_to_text: >
 
 doc_to_target: SMILES
 task: 50Ligands-TMC-gap
-process_results: !function utils.process_smiles_gap
+process_results: !function utils.process_tmc_gap
 generation_kwargs:
   max_tokens: 4096
   until:

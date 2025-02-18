@@ -6,7 +6,7 @@ from lm_eval.utils import eval_logger
 from datasets import load_dataset
 import pandas as pd
 
-def process_smiles_gap(doc, results):
+def process_tmc_gap(doc, results):
     df =  load_dataset()
     if(df is None):
         eval_logger.info("Dataset loading failed")
@@ -24,7 +24,7 @@ def process_smiles_gap(doc, results):
         "mean_homo_lumo_gap": mean_homo_lumo_gap
     }
 
-def process_smiles_polar(doc, results):
+def process_tmc_polar(doc, results):
     df =  load_dataset()
     if(df is None):
         eval_logger.info("Dataset loading failed")
@@ -113,6 +113,8 @@ def extract_answer(message: str, expected_returns: int = 5):
     return tmcs
 
 def evaluate_answer(answer, df, porp, doc):
+
+    
     doc_df = transform_doc_to_df(doc)
     df = find_tmc_in_space(df, answer, doc_df)
     

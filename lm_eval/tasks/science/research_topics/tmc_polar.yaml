@@ -21,8 +21,7 @@ doc_to_text: >
   O1CCNCC1,CEVJAP-subgraph-2,0,N,1
   n1[nH]c(cc1C)C,BABTUT-subgraph-3,0,N,1
   C(C)NCC,ZEJJEF-subgraph-3,0,N,1
-  n1ccc(cc1)N(C)C,KULGAZ-subgraph-2,0,N,1
-  [C-]#[O+],CIGDAA-subgraph-1,0,C,1
+  n1ccc(cc1)N(C)C,KULGAZ-subgraph-2,0,N,1  [C-]#[O+],CIGDAA-subgraph-1,0,C,1
   c1ccnc(c1)N,HOVMIP-subgraph-3,0,N,1
   N,ULUSIE-subgraph-1,0,N,1
   S(C)C,IBEKUV-subgraph-1,0,S,1
@@ -80,7 +79,7 @@ doc_to_text: >
   {{tmc10}}
 
   Grounded on your chemistry knowledge, look at the pattern of the provided data and think about what makes a TMC with large polarisability.
-  Then please propose TEN *NEW* TMCs that have polarisability larger than all the TMCs above.
+  Then please propose FIVE *NEW* TMCs that have polarisability larger than all the TMCs above.
   You can make ligand crossover (i.e., swap ligands in the TMCs) and ligand mutations (i.e., substitude ligands in TMCs with thr 50 ligands in the pool) based on your knowledge to achieve the design objective.
   If you want to be creative, you can also propose new TMCs by taking advantage of your chemistry knowledge to achieve the design objective.
   You should make use of BOTH the ground-truth polarisability data for the TMCs provided above AND your chemistry knowledge.
@@ -98,7 +97,7 @@ doc_to_text: >
 
 doc_to_target: SMILES
 task: 50Ligands-TMC-polar
-process_results: !function utils.process_smiles_polar
+process_results: !function utils.process_tmc_polar
 generation_kwargs:
   max_tokens: 4096
   until:
