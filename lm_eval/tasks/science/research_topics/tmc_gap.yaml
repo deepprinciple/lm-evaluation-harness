@@ -108,6 +108,12 @@ generation_kwargs:
   do_sample: false
 num_fewshot: 0
 metric_list:
-  - metric: mean_homo_lumo_gap
+  - metric: mean_gap
+    aggregation: mean
+    higher_is_better: true
+  - metric: gap_scaler
+    aggregation: mean
+    higher_is_better: true
+  - metric: top_3_gap_scaler
     aggregation: mean
     higher_is_better: true

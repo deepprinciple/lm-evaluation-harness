@@ -1,0 +1,6 @@
+group: 10_ligand_tmc_opt
+task:
+  - 50Ligands-TMC-polar
+  - 50Ligands-TMC-gap
+metadata:
+  version: 0.0

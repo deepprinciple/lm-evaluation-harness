@@ -6,42 +6,41 @@ from lm_eval.utils import eval_logger
 from datasets import load_dataset
 import pandas as pd
 
+polar_zero_result = {
+    "mean_polarisability": 0.0,
+    "polarisability_scaler": 0.0,
+    "top_3_polarisability_scaler": 0.0
+}
+
+gap_zero_result = {
+    "mean_gap": 0.0,
+    "gap_scaler": 0.0,
+    "top_3_gap_scaler": 0.0
+}
+
 def process_tmc_gap(doc, results):
     df =  load_dataset()
     if(df is None):
         eval_logger.info("Dataset loading failed")
-        return {
-            "mean_homo_lumo_gap": 0.0
-        }
+        return gap_zero_result
     answer = extract_answer(results[0])
     if(answer is None or len(answer) == 0):
         eval_logger.info("Answer extraction failed")
-        return {
-            "mean_homo_lumo_gap": 0.0
-        }
+        return gap_zero_result
     mean_homo_lumo_gap = evaluate_answer(answer, df, "gap", doc)
-    return {
-        "mean_homo_lumo_gap": mean_homo_lumo_gap
-    }
+    return mean_homo_lumo_gap
 
 def process_tmc_polar(doc, results):
     df =  load_dataset()
     if(df is None):
         eval_logger.info("Dataset loading failed")
-        return {
-            "mean_polarisability": 0.0
-        }
+        return polar_zero_result
     answer = extract_answer(results[0])
     if(answer is None or len(answer) < 5):
         eval_logger.info("Answer extraction failed")
-        return {
-            "mean_polarisability": 0.0
-        }
+        return polar_zero_result
     mean_polarisability = evaluate_answer(answer, df, "polarisability", doc)
-    # eval_logger.info("Mean Polarisability: " + str(mean_polarisability))
-    return {
-        "mean_polarisability": mean_polarisability
-    }
+    return mean_polarisability
 
 def load_dataset():
     url = "https://zenodo.org/records/14328055/files/ground_truth_fitness_values.csv"
@@ -121,13 +120,35 @@ def evaluate_answer(answer, df, porp, doc):
     if(df is None):
         return 0.0
     else:
-        eval_logger.info("TMCs found in space: " + str(df))
+        # eval_logger.info("TMCs found in space: " + str(df))
         if(len(df) == 5):
-            return df[porp].mean()
+            return create_polar_result(df[porp].mean(), df, df.nlargest(3, porp), porp)
         elif(len(df) < 5):
-            return df[porp].sum() / 5
+            if(len(df) < 3):
+                return create_polar_result(df[porp].sum() / len(df), df, df.nlargest(len(df), porp), porp)
+            return create_polar_result(df[porp].sum() / 5, df, df.nlargest(3, porp), porp)
         else:
-            return df[porp][:5].mean()
+            return create_polar_result(df[porp][:5].mean(), df, df.nlargest(3, porp), porp)
+
+def create_polar_result(mean, polar_scaler, top_3_polar_scaler, prop):
+    return {
+        "mean_"+prop: mean,
+        prop+"_scaler": calculate_scaler(polar_scaler, prop, top_n = 5),
+        "top_3_"+prop+"_scaler": calculate_scaler(top_3_polar_scaler, prop, top_n = 3)
+    }
+
+def calculate_scaler(scaler, prop, top_n):
+    if(prop == "polarisability"):
+        polar_max = 493
+        polar_min = 55
+        print(scaler.head(1))
+        return (scaler[prop].sum() / top_n - polar_min) / (polar_max - polar_min)
+    elif(prop == "gap"):
+        gap_max = 4.9
+        gap_min = 0.04
+        return (scaler[prop].sum() / top_n - gap_min) / (gap_max - gap_min)
+    else:
+        raise ValueError("Invalid property for scaler calculation - prop: " + prop)
 
 def transform_doc_to_df(doc):
     given_tmcs = pd.DataFrame(columns=["lig1", "lig2", "lig3", "lig4"])

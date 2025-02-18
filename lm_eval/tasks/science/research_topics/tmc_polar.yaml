@@ -110,3 +110,9 @@ metric_list:
   - metric: mean_polarisability
     aggregation: mean
     higher_is_better: true
+  - metric: polarisability_scaler
+    aggregation: mean
+    higher_is_better: true
+  - metric: top_3_polarisability_scaler
+    aggregation: mean
+    higher_is_better: true
