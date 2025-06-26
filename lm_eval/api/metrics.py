@@ -175,6 +175,25 @@ def acc_norm_fn(items):  # This is a passthrough function
 def acc_mutual_info_fn(items):  # This is a passthrough function
     return items
 
+@register_metric(
+    metric="mae",
+    higher_is_better=False,
+    output_type="generate_until",
+    aggregation="mean",
+)
+def mae_metric(predictions, references):
+    errors = []
+    for pred, ref in zip(predictions, references):
+        try:
+            pred_val = float(pred)
+            ref_val = float(ref)
+            errors.append(abs(pred_val - ref_val))
+        except:
+            continue  # Skip invalid generations
+    return sum(errors) / len(errors) if errors else float("inf")
+
+
+
 
 ### the code used in the `exact_match_hf_evaluate` function is ported from
 ### https://github.com/huggingface/evaluate/blob/main/metrics/exact_match/exact_match.py
