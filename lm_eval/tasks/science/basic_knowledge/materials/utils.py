@@ -26,3 +26,14 @@ def process_mof_synthesis_qa(dataset):
         }
     return dataset.map(format_row)
 
+def process_battery_electrolyte_qa(dataset):
+    def format_row(row):
+        return {
+            "Question": row["Question"].strip(),
+            "Option_A": row["Option_A"].strip(),
+            "Option_B": row["Option_B"].strip(),
+            "Option_C": row["Option_C"].strip(),
+            "Option_D": row.get("Option_D", "").strip(),
+            "Answer": row["Answer"].strip()  # ← no <answer> wrapper here!
+        }
+    return dataset.map(format_row)
