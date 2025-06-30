@@ -22,7 +22,7 @@ doc_to_text: >
   Answer:
 
 doc_to_target: Answer
-task: lammps_vasp_QA
+task: lammps_vasp
 
 filter_list:
   - name: "xml-extract"

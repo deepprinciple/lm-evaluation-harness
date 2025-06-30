@@ -19,7 +19,7 @@ doc_to_text: >
   Answer:
 
 doc_to_target: Answer
-task: materials_science_qa
+task: general_materials_science_qa
 filter_list:
   - name: xml-extract
     filter:

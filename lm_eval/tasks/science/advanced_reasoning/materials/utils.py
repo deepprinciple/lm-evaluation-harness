@@ -17,17 +17,6 @@ def process_mof_water_stability(dataset):
         })
     return Dataset.from_list(processed)
 
-
-def process_polymer_tg(dataset):
-    return dataset.map(lambda x: {
-        "SMILES": x["Question"].split(",")[0].strip().strip('"').strip("*"),
-        "Density": float(x["Question"].split(",")[1].strip()),
-        "Tg": float(x["Answer"]),
-        "question": f"SMILES: {x['Question'].split(',')[0].strip()} \n Density: {x['Question'].split(',')[1].strip()} \n",
-        "answer": str(x["Answer"])
-    })
-
-
 def process_pxrd_lattice(dataset):
     def format_row(row):
         return {
