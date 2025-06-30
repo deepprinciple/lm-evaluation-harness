@@ -59,3 +59,12 @@ def normalize_prediction(doc, pred):
     target = doc["label"].strip().lower()
     
     return {"exact_match": pred == target}
+
+def process_corrosion_prediction(dataset):
+    def format_row(row):
+        return {
+            "smiles": row["smiles"].strip(),
+            "label": str(row["corrosion_status"]).strip()
+        }
+    return dataset.map(format_row)
+
