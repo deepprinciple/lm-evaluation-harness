@@ -68,3 +68,14 @@ def process_corrosion_prediction(dataset):
         }
     return dataset.map(format_row)
 
+
+def process_safety_prediction(dataset):
+    def format_row(row):
+        return {
+            "smiles": row["smiles"].strip(),
+            "unsafe": row["Unsafe"],   # "TRUE" or "FALSE"
+            "comment": row["Comment"].strip(),         # e.g. "Flammable Liquid"
+        }
+    return dataset.map(format_row)
+
+
