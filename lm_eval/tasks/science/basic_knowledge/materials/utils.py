@@ -56,3 +56,18 @@ def process_biomaterials_qa(dataset):
         }
     return dataset.map(format_row)
    
+def process_composites_qa(dataset):
+    def format_row(row):
+        # helper to safely pull and strip any field
+        def s(key):
+            return (row.get(key) or "").strip()
+
+        return {
+            "Question": s("Question"),
+            "Option_A": s("Option_A"),
+            "Option_B": s("Option_B"),
+            "Option_C": s("Option_C"),
+            "Option_D": s("Option_D"),  # now None → "" → strip() → ""
+            "Answer"  : s("Answer"),
+        }
+    return dataset.map(format_row)
