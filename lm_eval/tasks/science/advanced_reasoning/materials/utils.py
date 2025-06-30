@@ -1,4 +1,8 @@
 from datasets import Dataset
+from sklearn.metrics import f1_score
+from collections import defaultdict
+
+
 
 def process_mof_water_stability(dataset):
     # Rename columns to match doc_to_text variables
@@ -35,3 +39,23 @@ def process_pxrd_lattice(dataset):
         }
     return dataset.map(format_row)
 
+def process_pxrd_crystal_system(dataset):
+    def format_row(row):
+        return {
+            "peaks": row["Peak positions"].strip(),
+            "intensities": row["Peak intensities"].strip(),
+            "material_type": row["Comment"].strip(),
+            "label": row["Ground truth - Crystal system"].strip().lower()
+        }
+    return dataset.map(format_row)
+
+def normalize_prediction(doc, pred):
+    """Normalize prediction and target for exact match"""
+    if isinstance(pred, list):
+        pred = pred[0]
+    
+    # Strip and lowercase both prediction and target
+    pred = pred.strip().lower()
+    target = doc["label"].strip().lower()
+    
+    return {"exact_match": pred == target}
