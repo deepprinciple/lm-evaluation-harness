@@ -185,11 +185,21 @@ def mae_metric(predictions, references):
     errors = []
     for pred, ref in zip(predictions, references):
         try:
-            pred_val = float(pred)
-            ref_val = float(ref)
-            errors.append(abs(pred_val - ref_val))
-        except:
+            # Try parsing as vector
+            pred_vals = [float(x.strip()) for x in pred.strip("[]").split(",")]
+            ref_vals = [float(x.strip()) for x in ref.strip("[]").split(",")]
+
+            # If scalar, len() == 1
+            if len(pred_vals) != len(ref_vals):
+                continue  # skip malformed
+
+            abs_errors = [abs(p - r) for p, r in zip(pred_vals, ref_vals)]
+            mean_error = sum(abs_errors) / len(abs_errors)
+            errors.append(mean_error)
+
+        except Exception:
             continue  # Skip invalid generations
+
     return sum(errors) / len(errors) if errors else float("inf")
 
 

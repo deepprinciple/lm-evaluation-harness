@@ -24,4 +24,14 @@ def process_polymer_tg(dataset):
     })
 
 
+def process_pxrd_lattice(dataset):
+    def format_row(row):
+        return {
+            "pxrd": row["Peak positions"].strip(),
+            "miller_indices": row["Miller indices"].strip(),
+            "crystal_system": row["Crystal system"].strip(),
+            "comment": row["Comment"].strip(),  # e.g., "MOF" or "ionic compound"
+            "target": f"{row['Ground truth-a']}, {row['Ground truth-b']}, {row['Ground truth-c']}"
+        }
+    return dataset.map(format_row)
 
