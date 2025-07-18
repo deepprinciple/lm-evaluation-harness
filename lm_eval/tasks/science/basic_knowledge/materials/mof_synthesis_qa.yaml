@@ -1,7 +1,7 @@
-dataset_path: iamthomaspruyn/mof-synthesis-qa
-dataset_name: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: mof-synthesis-qa
+test_split: test
+
 process_docs: !function utils.process_mof_synthesis_qa
 doc_to_text: >
   You are an expert in MOF synthesis. Select the correct answer from the choices below.

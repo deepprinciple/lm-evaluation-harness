@@ -1,7 +1,6 @@
-dataset_path: iamthomaspruyn/pxrd-lattice-prediction
-dataset_name: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: pxrd-lattice-prediction
+test_split: test
 
 task: pxrd_lattice_prediction
 process_docs: !function utils.process_pxrd_lattice

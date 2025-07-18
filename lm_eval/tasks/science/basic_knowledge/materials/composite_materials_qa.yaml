@@ -1,7 +1,6 @@
-dataset_path: iamthomaspruyn/composite-materials-qa
-dataset_name: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: composites-qa
+test_split: test
 
 process_docs: !function utils.process_composites_qa
 

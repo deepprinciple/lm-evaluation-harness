@@ -1,7 +1,7 @@
-dataset_path: iamthomaspruyn/lammps-vasp-QA
-dataset_name: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: lammps-vasp
+test_split: test
+
 process_docs: !function utils.process_lammps_vasp
 doc_to_text: >
   You are an expert in computational materials science. Based on the question below, choose the correct answer(s).

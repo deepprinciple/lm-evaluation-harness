@@ -1,8 +1,6 @@
-# tasks/science/advanced_reasoning/materials/safety_prediction.yaml
-dataset_path: iamthomaspruyn/materials-safety-classification
-dataset_name: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: materials-safety-classification
+test_split: test
 
 process_docs: !function utils.process_safety_prediction
 

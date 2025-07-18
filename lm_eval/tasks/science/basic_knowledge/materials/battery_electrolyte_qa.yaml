@@ -1,8 +1,7 @@
-dataset_path: iamthomaspruyn/battery-electrolyte-qa
-dataset_name: null
-validation_split: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: battery-electrolyte-qa
+test_split: test
+
 process_docs: !function utils.process_battery_electrolyte_qa
 doc_to_text: >
   You are an expert in battery electrolyte chemistry. Use your expert knowledge to answer the multiple choice question below.

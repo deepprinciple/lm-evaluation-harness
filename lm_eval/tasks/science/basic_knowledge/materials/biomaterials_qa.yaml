@@ -1,7 +1,6 @@
-dataset_path: iamthomaspruyn/biomaterials_qa
-dataset_name: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: biomaterials-qa
+test_split: test
 
 process_docs: !function utils.process_biomaterials_qa
 
