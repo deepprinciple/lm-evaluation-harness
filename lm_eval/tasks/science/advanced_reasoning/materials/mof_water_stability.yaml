@@ -1,8 +1,7 @@
-dataset_path: iamthomaspruyn/mof_water_stability
-dataset_name: null
-validation_split: null
-test_split: train
-fewshot_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: mof-water-stability
+test_split: test
+
 process_docs: !function utils.process_mof_water_stability
 doc_to_text: >
   You are an expert in metal-organic frameworks. You will be given a passage of text from a paper, and must use it to decide the MOF's water stability.

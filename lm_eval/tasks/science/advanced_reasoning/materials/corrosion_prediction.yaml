@@ -1,5 +1,6 @@
-dataset_path: iamthomaspruyn/corrosion-prediction
-test_split: train
+dataset_path: deep-principle/science_materials
+dataset_name: corrosion-prediction
+test_split: test
 
 process_docs: !function utils.process_corrosion_prediction
 
