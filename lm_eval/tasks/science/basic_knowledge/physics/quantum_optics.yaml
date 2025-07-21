@@ -1,0 +1,12 @@
+include: "_default_multi_choice_yaml"
+process_docs: !function utils.process_quantum_optics
+doc_to_text: >
+  You are an expert in Quantum Optics theory. The following are multiple choice questions about Quantum Optics theory.
+  Let's think step by step. Please wrap the final answer in XML tags: <answer>X</answer> (where X is A, B, C, or D)
+  Question: {{Question.strip()}}
+  A: {{Option_A}}
+  B: {{Option_B}}
+  C: {{Option_C}}
+  D: {{Option_D}}
+  Answer:
+task: multiple_choice_quantum_optics
