@@ -1,0 +1,32 @@
+dataset_path: DeepPrinciple/physics_exact_match
+dataset_name: null
+test_split: train
+
+process_docs: !function utils.process_quantum_information
+doc_to_text: >
+  You are an expert in physics and mathematics. Please answer the following question with a precise mathematical expression or formula.
+  Question: {{Question.strip()}}
+  Answer:
+doc_to_target: Answer
+task: exact_match_quantum_information
+filter_list:
+  - name: "extract-answer"
+    filter:
+      - function: "take_first"
+generation_kwargs:
+  max_tokens: 512
+  until:
+    - "</s>"
+    - "Question:"
+    - "<|im_end|>"
+    - "\n\n"
+  do_sample: false
+  temperature: 0.0
+num_fewshot: 0
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+    ignore_numbers: false

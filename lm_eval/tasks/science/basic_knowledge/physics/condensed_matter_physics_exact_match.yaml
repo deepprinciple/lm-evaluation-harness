@@ -1,0 +1,7 @@
+include: "_default_exact_match_yaml"
+process_docs: !function utils.process_condensed_matter_physics
+doc_to_text: >
+  You are an expert in Condensed Matter Physics theory. Please answer the following question with a precise mathematical expression or formula.
+  Question: {{Question.strip()}}
+  Answer:
+task: exact_match_condensed_matter_physics

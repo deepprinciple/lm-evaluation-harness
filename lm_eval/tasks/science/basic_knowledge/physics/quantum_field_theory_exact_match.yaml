@@ -1,0 +1,7 @@
+include: "_default_exact_match_yaml"
+process_docs: !function utils.process_quantum_field_theory
+doc_to_text: >
+  You are an expert in Quantum Field Theory. Please answer the following question with a precise mathematical expression or formula.
+  Question: {{Question.strip()}}
+  Answer:
+task: exact_match_quantum_field_theory
