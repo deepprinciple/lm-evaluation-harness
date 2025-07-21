@@ -1,0 +1,3 @@
+group: genetics
+task:
+  - gwas_causal_gene

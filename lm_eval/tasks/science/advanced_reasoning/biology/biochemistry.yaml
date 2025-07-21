@@ -1,0 +1,8 @@
+group: biochemistry
+task:
+  - descriptor_prediction
+  - enzymatic_reaction_prediction
+  - fragment_completion
+  - lipinski_prediction
+  - matched_molecular_pair
+  - property_based_matching

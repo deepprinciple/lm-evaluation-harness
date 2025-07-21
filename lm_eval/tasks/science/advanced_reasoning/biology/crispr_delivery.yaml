@@ -1,0 +1,52 @@
+dataset_path: yhqu/crispr_delivery
+dataset_name: null
+dataset_kwargs: null
+test_split: train
+fewshot_split: train
+process_docs: !function utils.crispr_delivery
+doc_to_text: >
+  You are an expert in CRISPR gene editing technologies. Your task is to identify the two most relevant CRISPR delivery methods based on the user's requirements.
+
+  Given Information:
+  - User Requirements: {{USER_MESSAGE}}
+
+  Available Delivery Methods:
+  a. Plasmid Transfection
+  b. Lentivirus/Retrovirus
+  c. RNP/mRNA electroporation
+  d. RNP/mRNA microinjection
+  e. mRNA LNP
+  f. AAV
+
+  Requirements:
+  - Analyze the user's needs and experimental context
+  - Select the most appropriate delivery method as Answer1
+  - Select the second most appropriate delivery method as Answer2
+  - Provide only single letters (a-f) as answers
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[Answer 1: single letter: a, b, c, d, e, or f], [Answer 2: single letter: a, b, c, d, e, or f]</ANSWER>
+doc_to_target: Answer
+process_results: !function utils.process_crispr_delivery
+task: crispr_delivery
+filter_list:
+  - name: "xml-extract"
+    filter:
+      - function: "regex"
+        regex_pattern: "<ANSWER>(.*?)</ANSWER>" # to capture responses like <answer>A\\</answer>
+        group_select: 0
+        fallback: "[invalid]"
+generation_kwargs:
+  max_tokens: 4096
+  until:
+    - "</s>"
+    - "Q:"
+    - "<|im_end|>"
+  do_sample: false
+  temperature: 0.0
+num_fewshot: 0
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true
