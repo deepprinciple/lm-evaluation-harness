@@ -1,0 +1,8 @@
+include: "_default_exact_match_yaml"
+process_docs: !function utils.process_phase_classification_transitions
+doc_to_text: >
+  You are an expert in Phase Classification and Transitions theory. The following are exact match questions about Phase Classification and Transitions theory.
+  Let's think step by step. Please provide the exact answer.
+  Question: {{Question.strip()}}
+  Answer:
+task: exact_match_phase_classification_transitions

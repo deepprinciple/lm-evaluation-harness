@@ -1,0 +1,8 @@
+include: "_default_exact_match_yaml"
+process_docs: !function utils.process_electromagnetism
+doc_to_text: >
+  You are an expert in Electromagnetism theory. The following are exact match questions about Electromagnetism theory.
+  Let's think step by step. Please provide the exact answer.
+  Question: {{Question.strip()}}
+  Answer:
+task: exact_match_electromagnetism
