@@ -2,31 +2,34 @@ dataset_path: DeepPrinciple/physics_exact_match
 dataset_name: null
 test_split: train
 
-process_docs: !function utils.process_quantum_information
+# Process ALL documents, not just specific tasks (82/99 examples have None tasks)
+process_docs: !function utils.process_all_docs
 doc_to_text: >
-  You are an expert in physics and mathematics. Please answer the following question with a precise mathematical expression or formula.
+  You are an expert in physics and mathematics. Please solve the following question step by step.
+  
   Question: {{Question.strip()}}
+  
+  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
+  <Math>your mathematical expression</Math>
+  
   Answer:
 doc_to_target: Answer
-task: exact_match_quantum_information
+task: exact_match_physics_all
 filter_list:
-  - name: "extract-answer"
+  - name: "math-extract"
     filter:
-      - function: "take_first"
+      - function: "custom"
+        filter_fn: !function utils.extract_math_answers
 generation_kwargs:
-  max_tokens: 512
+  max_tokens: 4096
   until:
     - "</s>"
     - "Question:"
     - "<|im_end|>"
-    - "\n\n"
   do_sample: false
   temperature: 0.0
 num_fewshot: 0
 metric_list:
-  - metric: exact_match
+  - metric: !function utils.math_verify_score
     aggregation: mean
     higher_is_better: true
-    ignore_case: true
-    ignore_punctuation: true
-    ignore_numbers: false

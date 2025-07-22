@@ -1,8 +1,14 @@
 include: "_default_exact_match_yaml"
+# WARNING: This task has 0 EM samples in exact match dataset
+# Alternative: Use process_all_docs for 99 samples (but not task-specific)
 process_docs: !function utils.process_ground_state_discovery
 doc_to_text: >
-  You are an expert in Ground State Discovery theory. The following are exact match questions about Ground State Discovery theory.
-  Let's think step by step. Please provide the exact answer.
+  You are an expert in Ground State Discovery. Please solve the following question step by step.
+  
   Question: {{Question.strip()}}
+  
+  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
+  <Math>your mathematical expression</Math>
+  
   Answer:
 task: exact_match_ground_state_discovery

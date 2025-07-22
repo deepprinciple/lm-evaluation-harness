@@ -1,7 +1,13 @@
 include: "_default_exact_match_yaml"
+# Uses specific task filtering: 8 EM + 25 MC samples
 process_docs: !function utils.process_quantum_information
 doc_to_text: >
-  You are an expert in quantum information theory. Please answer the following question with a precise mathematical expression or formula.
+  You are an expert in Quantum Information Theory. Please solve the following question step by step.
+  
   Question: {{Question.strip()}}
+  
+  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
+  <Math>your mathematical expression</Math>
+  
   Answer:
 task: exact_match_quantum_information

@@ -1,8 +1,9 @@
 include: "_default_multi_choice_yaml"
+# Uses specific task filtering: 1 EM + 6 MC samples
 process_docs: !function utils.process_phase_classification_transitions
 doc_to_text: >
-  You are an expert in Phase Classification and Transitions theory. The following are multiple choice questions about Phase Classification and Transitions theory.
-  Let's think step by step. Please wrap the final answer in XML tags: <answer>X</answer> (where X is A, B, C, or D)
+  You are an expert in Phase Classification & Transitions. The following are multiple choice questions about phase classification & transitions.
+  Let's think step by step. Please wrap the final answer in XML tags: <answer>X</answer> (where X can be A, B, C, D, or combinations like AB, ABC, etc.)
   Question: {{Question.strip()}}
   A: {{Option_A}}
   B: {{Option_B}}
