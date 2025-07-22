@@ -1,19 +1,164 @@
 from functools import partial
 
 def process_docs(dataset, task):
+    """Filter dataset by specific task type"""
     return dataset.filter(lambda x: x["Task"] == task)
 
-process_quantum_information = partial(process_docs, task="Quantum Information")
-process_dmrg_tensor_networks = partial(process_docs, task="DMRG/Tensor Network")
-process_quantum_compilation_hamiltonian_compilation = partial(process_docs, task="Quantum Compilation, Hamiltonian Compilation")
-process_phase_classification_transitions = partial(process_docs, task="Phase Classification & Transitions")
-process_general_relativity_cosmology = partial(process_docs, task="General Relativity and Cosmology")
-process_condensed_matter_physics = partial(process_docs, task="Condensed Matter Physics")
-process_ground_state_discovery = partial(process_docs, task="Ground State Discovery")
-process_statistical_mechanics = partial(process_docs, task="Statistical Mechanics")
-process_quantum_field_theory = partial(process_docs, task="Quantum Field Theory")
-process_amo_quantum_optics = partial(process_docs, task="AMO / Quantum Optics")
-process_algebraic_topology = partial(process_docs, task="Algebraic Topology")
-process_electromagnetism = partial(process_docs, task="Electromagnetism")
-process_quantum_optics = partial(process_docs, task="Quantum Optics")
-process_core_knowledge = partial(process_docs, task="Core Knowledge")
+def process_all_docs(dataset):
+    """Process all documents without filtering - for datasets with missing Task fields"""
+    return dataset
+
+# Process functions for all tasks (maintain compatibility with existing configs)
+# ✅ = Has data in exact match dataset, ❌ = No data but function exists for compatibility
+process_quantum_information = partial(process_docs, task="Quantum Information")  # ✅ 8 examples
+process_dmrg_tensor_networks = partial(process_docs, task="DMRG/Tensor Network")  # ✅ 2 examples  
+process_phase_classification_transitions = partial(process_docs, task="Phase Classification & Transitions")  # ✅ 1 example
+process_statistical_mechanics = partial(process_docs, task="Statistical Mechanics")  # ✅ 2 examples
+process_quantum_optics = partial(process_docs, task="Quantum Optics")  # ✅ 4 examples
+
+# Functions without data in exact match dataset (kept for compatibility with existing configs)
+process_quantum_compilation_hamiltonian_compilation = partial(process_docs, task="Quantum Compilation, Hamiltonian Compilation")  # ❌ 0 examples
+process_general_relativity_cosmology = partial(process_docs, task="General Relativity and Cosmology")  # ❌ 0 examples
+process_condensed_matter_physics = partial(process_docs, task="Condensed Matter Physics")  # ❌ 0 examples
+process_ground_state_discovery = partial(process_docs, task="Ground State Discovery")  # ❌ 0 examples
+process_quantum_field_theory = partial(process_docs, task="Quantum Field Theory")  # ❌ 0 examples
+process_amo_quantum_optics = partial(process_docs, task="AMO / Quantum Optics")  # ❌ 0 examples
+process_algebraic_topology = partial(process_docs, task="Algebraic Topology")  # ❌ 0 examples
+process_electromagnetism = partial(process_docs, task="Electromagnetism")  # ❌ 0 examples
+process_core_knowledge = partial(process_docs, task="Core Knowledge")  # ❌ 0 examples
+
+def extract_math_answers(resps, docs):
+    """Direct Math-Verify answer extraction using native parse() with preprocessing"""
+    
+    # Minimal placeholder filtering
+    def is_placeholder(text):
+        """Basic placeholder check"""
+        if not text:
+            return True
+        text_lower = str(text).lower().strip()
+        placeholders = {'your mathematical expression', 'your answer', '...'}
+        return any(placeholder in text_lower for placeholder in placeholders)
+    
+    def preprocess_for_math_verify(text):
+        """Preprocess text to help Math-Verify's parse() function"""
+        import re
+        
+        # Extract content from <Math>...</Math> tags first
+        math_match = re.search(r'<Math>([^<]+)</Math>', text, re.IGNORECASE | re.DOTALL)
+        if math_match:
+            return math_match.group(1).strip()
+            
+        # Extract content from <Math>...<\Math> tags (with backslash)
+        math_match = re.search(r'<Math>([^<]+)<\\?/?Math>', text, re.IGNORECASE | re.DOTALL)
+        if math_match:
+            return math_match.group(1).strip()
+        
+        # Return original text for Math-Verify to handle \\boxed{} and other formats
+        return text
+    
+    try:
+        from math_verify import parse
+        
+        filtered_resps = []
+        for resp_list in resps:
+            filtered = []
+            for resp in resp_list:
+                try:
+                    # Preprocess the response to help Math-Verify
+                    preprocessed = preprocess_for_math_verify(resp)
+                    
+                    # Use Math-Verify's parse() function to extract expressions
+                    parsed_results = parse(preprocessed)
+                    
+                    if parsed_results:
+                        # Take the first successfully parsed expression (SymPy object)
+                        extracted = str(parsed_results[0])
+                        if not is_placeholder(extracted):
+                            filtered.append(extracted)
+                        else:
+                            # Try the string version if available
+                            if len(parsed_results) > 1:
+                                extracted = parsed_results[1]
+                                if not is_placeholder(extracted):
+                                    filtered.append(extracted)
+                                else:
+                                    # Use preprocessed result
+                                    if not is_placeholder(preprocessed):
+                                        filtered.append(preprocessed)
+                                    else:
+                                        # Simple fallback: last non-empty line
+                                        lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
+                                        filtered.append(lines[-1] if lines else resp.strip())
+                            else:
+                                # Use preprocessed result
+                                if not is_placeholder(preprocessed):
+                                    filtered.append(preprocessed)
+                                else:
+                                    # Simple fallback: last non-empty line
+                                    lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
+                                    filtered.append(lines[-1] if lines else resp.strip())
+                    else:
+                        # Math-Verify parse failed, use preprocessed result
+                        if not is_placeholder(preprocessed):
+                            filtered.append(preprocessed)
+                        else:
+                            # Simple fallback: last non-empty line
+                            lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
+                            filtered.append(lines[-1] if lines else resp.strip())
+                except Exception:
+                    # Basic fallback with preprocessing
+                    preprocessed = preprocess_for_math_verify(resp)
+                    if not is_placeholder(preprocessed):
+                        filtered.append(preprocessed)
+                    else:
+                        lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
+                        filtered.append(lines[-1] if lines else resp.strip())
+                    
+            filtered_resps.append(filtered)
+        return filtered_resps
+    
+    except ImportError:
+        # Simple fallback when Math-Verify is not available
+        filtered_resps = []
+        for resp_list in resps:
+            filtered = []
+            for resp in resp_list:
+                lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
+                filtered.append(lines[-1] if lines else resp.strip())
+            filtered_resps.append(filtered)
+        return filtered_resps
+
+def math_verify_score(predictions, references):
+    """Direct Math-Verify verification using native parse() + verify()"""
+    try:
+        from math_verify import parse, verify
+        
+        correct = 0
+        for pred, ref in zip(predictions, references):
+            try:
+                # Parse both prediction and reference using Math-Verify
+                parsed_pred = parse(str(pred))
+                parsed_ref = parse(str(ref))
+                
+                # Use parsed expressions if available, otherwise use strings
+                pred_expr = parsed_pred[0] if parsed_pred else str(pred)
+                ref_expr = parsed_ref[0] if parsed_ref else str(ref)
+                
+                # Use Math-Verify's verify() function for comparison
+                if verify(ref_expr, pred_expr):  # Note: gold first, pred second as per docs
+                    correct += 1
+                    
+            except Exception:
+                # Simple string fallback
+                if str(pred).strip().lower() == str(ref).strip().lower():
+                    correct += 1
+        
+        return correct / len(predictions) if predictions else 0
+    
+    except ImportError:
+        # Basic exact match fallback
+        correct = 0
+        for pred, ref in zip(predictions, references):
+            if str(pred).strip().lower() == str(ref).strip().lower():
+                correct += 1
+        return correct / len(predictions) if predictions else 0

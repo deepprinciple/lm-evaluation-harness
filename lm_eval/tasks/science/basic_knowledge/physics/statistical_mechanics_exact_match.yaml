@@ -1,8 +1,13 @@
 include: "_default_exact_match_yaml"
+# Uses specific task filtering: 2 EM + 4 MC samples
 process_docs: !function utils.process_statistical_mechanics
 doc_to_text: >
-  You are an expert in Statistical Mechanics theory. The following are exact match questions about Statistical Mechanics theory.
-  Let's think step by step. Please provide the exact answer.
+  You are an expert in Statistical Mechanics. Please solve the following question step by step.
+  
   Question: {{Question.strip()}}
+  
+  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
+  <Math>your mathematical expression</Math>
+  
   Answer:
 task: exact_match_statistical_mechanics
