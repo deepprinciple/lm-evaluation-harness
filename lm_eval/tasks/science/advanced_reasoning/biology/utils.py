@@ -23,14 +23,6 @@ def matched_molecular_pair(dataset):
         }
     return dataset.map(format_row)
 
-def lipinski_prediction(dataset):
-    def format_row(row):
-        return {
-            "INPUT_SMILES": (row.get("INPUT_SMILES") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
 def process_descriptor_prediction(doc, results):
     Answer_HBD = str(doc["Answer_HBD"]).strip()
     Answer_HBA = str(doc["Answer_HBA"]).strip()
