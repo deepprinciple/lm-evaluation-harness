@@ -9,3 +9,4 @@ process_forward_reaction_prediction = partial(process_docs, task='Forward Reacti
 process_retrosynthesis = partial(process_docs, task='Retrosynthesis')
 process_experimental_techniques = partial(process_docs, task='Experimental Techniques')
 process_molecular_property = partial(process_docs, task='Molecular Property')
+process_quantum_software_usage = partial(process_docs, task='Quantum Software Usage')
