@@ -1,0 +1,27 @@
+include: _default_biology_yaml
+dataset_name: lipinski-prediction
+doc_to_text: >
+  You are an expert biochemist specializing in drug-like property analysis. Your task is to analyze a molecule's SMILES representation and determine whether it satisfies Lipinski's Rule of Five.
+
+  Given Information:
+  - Input SMILES: {{INPUT_SMILES}}
+  Lipinski's Rule of Five Criteria: A molecule satisfies the rule if ALL of the following conditions are met:
+  - Hydrogen Bond Donors (HBD) ≤ 5
+  - Hydrogen Bond Acceptors (HBA) ≤ 10
+  - Molecular Weight (MW) < 500 Da - LogP < 5
+
+  Task: Calculate the four properties and determine if the molecule satisfies all criteria.
+
+  Options:
+  A: Satisfies Lipinski's Rule of Five (meets all criteria)
+  B: Violates Lipinski's Rule of Five (fails one or more criteria)
+
+  Requirements:
+  - Calculate all four molecular properties from the SMILES
+  - Check if ALL criteria are satisfied - Provide only the letter of your answer
+  - Do not include explanations or reasoning
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[Single letter: A or B]</ANSWER>
+task: lipinski_prediction

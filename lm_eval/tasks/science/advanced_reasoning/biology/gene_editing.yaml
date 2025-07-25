@@ -1,0 +1,26 @@
+include: _default_biology_yaml
+dataset_name: gene-editing
+doc_to_text: >
+  You are an expert in CRISPR gene editing technologies. Your task is to select the most appropriate answer from the given multiple choice options based on the user's question.
+
+  Given Information:
+  - Question: {{Question}}
+
+  Available Answer Choices:
+  a. {{Option_A}}
+  b. {{Option_B}}
+  c. {{Option_C}}
+  d. {{Option_D}}
+  e. {{Option_E}}
+
+  Requirements:
+  - Analyze the question and experimental context
+  - Evaluate each option based on current CRISPR best practices
+  - Select the most scientifically accurate and practical answer
+  - Provide only a single letter (a-e) as your answer
+  - Wrap your answer in the corresponding tag
+
+  Output Format:
+  <ANSWER>[single letter: a, b, c, d, or e]</ANSWER>
+doc_to_target: Answer
+task: gene_editing

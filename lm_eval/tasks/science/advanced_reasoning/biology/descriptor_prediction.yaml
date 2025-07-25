@@ -1,0 +1,32 @@
+include: _default_biology_yaml
+dataset_name: descriptor-prediction
+doc_to_text: >
+  You are an expert biochemist specializing in molecular property calculation. Your task is to analyze a molecule's SMILES representation and calculate its key molecular descriptors.
+
+  Given Information:
+  - Input SMILES: {{INPUT_SMILES}}
+
+  Properties to Calculate:
+  - Hydrogen Bond Donors (HBD): Count of NH and OH groups
+  - Hydrogen Bond Acceptors (HBA): Count of N and O atoms
+  - Molecular Weight (MW): Sum of atomic weights in Daltons
+  - LogP: Octanol-water partition coefficient
+
+  Requirements:
+  - Calculate each property precisely from the SMILES structure
+  - Format HBD as an integer
+  - Format HBA as an integer
+  - Format MW as a float with two decimal places
+  - Format LogP as a float with two decimal places
+  - Wrap your answer in <ANSWER></ANSWER> tags
+  - Do not include explanations or additional text
+
+  Output Format:
+  <ANSWER>HBD, HBA, MW, LogP</ANSWER>
+doc_to_target: Answer
+process_results: !function utils.process_descriptor_prediction
+task: descriptor_prediction
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true

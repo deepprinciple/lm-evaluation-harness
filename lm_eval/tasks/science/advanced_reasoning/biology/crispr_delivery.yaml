@@ -1,0 +1,32 @@
+include: _default_biology_yaml
+dataset_name: crispr-delivery
+doc_to_text: >
+  You are an expert in CRISPR gene editing technologies. Your task is to identify the two most relevant CRISPR delivery methods based on the user's requirements.
+
+  Given Information:
+  - User Requirements: {{USER_MESSAGE}}
+
+  Available Delivery Methods:
+  a. Plasmid Transfection
+  b. Lentivirus/Retrovirus
+  c. RNP/mRNA electroporation
+  d. RNP/mRNA microinjection
+  e. mRNA LNP
+  f. AAV
+
+  Requirements:
+  - Analyze the user's needs and experimental context
+  - Select the most appropriate delivery method as Answer1
+  - Select the second most appropriate delivery method as Answer2
+  - Provide only single letters (a-f) as answers
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[Answer 1: single letter: a, b, c, d, e, or f], [Answer 2: single letter: a, b, c, d, e, or f]</ANSWER>
+doc_to_target: Answer
+process_results: !function utils.process_crispr_delivery
+task: crispr_delivery
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true
