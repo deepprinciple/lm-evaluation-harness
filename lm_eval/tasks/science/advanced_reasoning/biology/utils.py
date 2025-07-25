@@ -1,28 +1,3 @@
-from datasets import Dataset
-
-def property_based_matching(dataset):
-    def format_row(row):
-        return {
-            "TARGET_SMILES": (row.get("TARGET_SMILES") or "").strip(),
-            "PROPERTY_VALUE": (row.get("PROPERTY_VALUE") or "").strip(),
-            "option_A": (row.get("option_A") or "").strip(),
-            "option_B": (row.get("option_B") or "").strip(),
-            "option_C": (row.get("option_C") or "").strip(),
-            "option_D": (row.get("option_D") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
-def matched_molecular_pair(dataset):
-    def format_row(row):
-        return {
-            "TARGET_SMILES": (row.get("TARGET_SMILES") or "").strip(),
-            "PROPERTY_VALUE": (row.get("PROPERTY_VALUE") or "").strip(),
-            "COMPARISON_SMILES": (row.get("COMPARISON_SMILES") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
 def process_descriptor_prediction(doc, results):
     Answer_HBD = str(doc["Answer_HBD"]).strip()
     Answer_HBA = str(doc["Answer_HBA"]).strip()
@@ -49,24 +24,7 @@ def process_descriptor_prediction(doc, results):
     # Calculate accuracy as number of matches divided by 4
     acc = matches / 4.0
     
-    return {"acc": acc}
-
-def protein_localization(dataset):
-    def format_row(row):
-        return {
-            "SEQUENCE": (row.get("SEQUENCE") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
-def gwas_causal_gene(dataset):
-    def format_row(row):
-        return {
-            "PHENOTYPE": (row.get("PHENOTYPE") or "").strip(),
-            "GENE_LIST": (row.get("GENE_LIST") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
+    return {"acc": acc} 
 
 def process_crispr_delivery(doc, results):
     # Extract option scores and convert to float, handle missing or invalid values gracefully
