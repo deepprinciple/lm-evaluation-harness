@@ -1,9 +1,5 @@
-dataset_path: yhqu/gwas_causal_gene
-dataset_name: null
-dataset_kwargs: null
-test_split: train
-fewshot_split: train
-process_docs: !function utils.gwas_causal_gene
+include: _default_biology_yaml
+dataset_name: gwas-causal-gene
 doc_to_text: >
   You are an expert in genetics and GWAS analysis. Your task is to identify the most likely causal gene within a genomic locus for a given GWAS phenotype.
   Given Information:
@@ -21,28 +17,4 @@ doc_to_text: >
 
   Output Format:
   <ANSWER>[gene symbol from the provided list]</ANSWER>
-doc_to_target: Answer
 task: gwas_causal_gene
-filter_list:
-  - name: "xml-extract"
-    filter:
-      - function: "regex"
-        regex_pattern: "<ANSWER>(.*?)</ANSWER>" # to capture responses like <answer>A\\</answer>
-        group_select: 0
-        fallback: "[invalid]"
-generation_kwargs:
-  max_tokens: 4096
-  until:
-    - "</s>"
-    - "Q:"
-    - "<|im_end|>"
-  do_sample: false
-  temperature: 0.0
-num_fewshot: 0
-metric_list:
-  - metric: exact_match
-    aggregation: mean
-    higher_is_better: true
-    ignore_case: true
-    ignore_punctuation: true
-    ignore_numbers: true
