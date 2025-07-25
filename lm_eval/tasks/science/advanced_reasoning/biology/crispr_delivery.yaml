@@ -1,9 +1,5 @@
-dataset_path: yhqu/crispr_delivery
-dataset_name: null
-dataset_kwargs: null
-test_split: train
-fewshot_split: train
-process_docs: !function utils.crispr_delivery
+include: _default_biology_yaml
+dataset_name: crispr-delivery
 doc_to_text: >
   You are an expert in CRISPR gene editing technologies. Your task is to identify the two most relevant CRISPR delivery methods based on the user's requirements.
 
@@ -30,22 +26,6 @@ doc_to_text: >
 doc_to_target: Answer
 process_results: !function utils.process_crispr_delivery
 task: crispr_delivery
-filter_list:
-  - name: "xml-extract"
-    filter:
-      - function: "regex"
-        regex_pattern: "<ANSWER>(.*?)</ANSWER>" # to capture responses like <answer>A\\</answer>
-        group_select: 0
-        fallback: "[invalid]"
-generation_kwargs:
-  max_tokens: 4096
-  until:
-    - "</s>"
-    - "Q:"
-    - "<|im_end|>"
-  do_sample: false
-  temperature: 0.0
-num_fewshot: 0
 metric_list:
   - metric: acc
     aggregation: mean

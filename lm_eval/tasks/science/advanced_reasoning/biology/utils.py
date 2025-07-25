@@ -123,50 +123,42 @@ def gwas_causal_gene(dataset):
         }
     return dataset.map(format_row)
 
-def crispr_delivery(dataset):
-    def format_row(row):
-        return {
-            "USER_MESSAGE": (row.get("USER_MESSAGE") or "").strip(),
-            "option_a_score": (row.get("option_a_score") or "").strip(),
-            "option_b_score": (row.get("option_b_score") or "").strip(),
-            "option_c_score": (row.get("option_c_score") or "").strip(),
-            "option_d_score": (row.get("option_d_score") or "").strip(),
-            "option_e_score": (row.get("option_e_score") or "").strip(),
-            "option_f_score": (row.get("option_f_score") or "").strip()
-        }
-    return dataset.map(format_row)
-
 def process_crispr_delivery(doc, results):
-    # Extract option scores and convert to float
-    option_scores = {
-        'a': float(doc["option_a_score"]),
-        'b': float(doc["option_b_score"]),
-        'c': float(doc["option_c_score"]),
-        'd': float(doc["option_d_score"]),
-        'e': float(doc["option_e_score"]),
-        'f': float(doc["option_f_score"])
-    }
-    
-    # Extract the predicted answers
-    Answer = results[0]
-    Answer1 = Answer.split(",")[0].strip().lower()
-    Answer2 = Answer.split(",")[1].strip().lower()
-    
+    # Extract option scores and convert to float, handle missing or invalid values gracefully
+    option_keys = ['a', 'b', 'c', 'd', 'e', 'f']
+    option_scores = {}
+    for k in option_keys:
+        try:
+            option_scores[k] = float(doc.get(f"option_{k}_score", 0.0))
+        except (ValueError, TypeError):
+            option_scores[k] = 0.0
+
+    # Extract the predicted answers robustly
+    Answer = results[0][0] if results and results[0] else ""
+    # Split by comma, strip whitespace, lowercase, and filter out empty strings
+    answers = [a.strip().lower() for a in Answer.split(",") if a.strip()]
+    # Only keep unique, valid options (max 2)
+    valid_answers = []
+    for a in answers:
+        if a in option_scores and a not in valid_answers:
+            valid_answers.append(a)
+        if len(valid_answers) == 2:
+            break
+    # If less than 2 valid answers, pad with None
+    while len(valid_answers) < 2:
+        valid_answers.append(None)
+
     # Calculate actual score by summing scores of predicted options
     actual_score = 0.0
-    if Answer1 in option_scores:
-        actual_score += option_scores[Answer1]
-    if Answer2 in option_scores:
-        actual_score += option_scores[Answer2]
-    
+    for a in valid_answers:
+        if a in option_scores:
+            actual_score += option_scores[a]
+
     # Calculate maximum possible score by taking the two highest scores
     sorted_scores = sorted(option_scores.values(), reverse=True)
-    max_possible_score = sorted_scores[0] + sorted_scores[1]
-    
+    max_possible_score = sum(sorted_scores[:2]) if len(sorted_scores) >= 2 else sum(sorted_scores)
+
     # Calculate accuracy as actual score divided by max possible score
-    if max_possible_score > 0:
-        acc = actual_score / max_possible_score
-    else:
-        acc = 0.0
-    
+    acc = actual_score / max_possible_score if max_possible_score > 0 else 0.0
+
     return {"acc": acc}
