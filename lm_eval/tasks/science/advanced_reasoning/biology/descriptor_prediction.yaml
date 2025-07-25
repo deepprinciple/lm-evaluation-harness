@@ -1,6 +1,5 @@
 include: _default_biology_yaml
 dataset_name: descriptor-prediction
-# process_docs: !function utils.descriptor_prediction
 doc_to_text: >
   You are an expert biochemist specializing in molecular property calculation. Your task is to analyze a molecule's SMILES representation and calculate its key molecular descriptors.
 

@@ -1,6 +1,5 @@
 include: _default_biology_yaml
 dataset_name: enzymatic-reaction-prediction
-# process_docs: !function utils.descriptor_prediction
 doc_to_text: >
   You are an expert biochemist specializing in enzymatic reaction prediction. Your task is to predict the product of an enzymatic reaction given the reactants, enzyme EC number, and supporting information.
 

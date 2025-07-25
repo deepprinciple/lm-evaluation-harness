@@ -31,19 +31,6 @@ def lipinski_prediction(dataset):
         }
     return dataset.map(format_row)
 
-def fragment_completion(dataset):
-    def format_row(row):
-        return {
-            "MASKED_SMILES": (row.get("MASKED_SMILES") or "").strip(),
-            "PROPERTY_VALUE": (row.get("PROPERTY_VALUE") or "").strip(),
-            "option_A": (row.get("option_A") or "").strip(),
-            "option_B": (row.get("option_B") or "").strip(),
-            "option_C": (row.get("option_C") or "").strip(),
-            "option_D": (row.get("option_D") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
 def process_descriptor_prediction(doc, results):
     Answer_HBD = str(doc["Answer_HBD"]).strip()
     Answer_HBA = str(doc["Answer_HBA"]).strip()
@@ -76,19 +63,6 @@ def protein_localization(dataset):
     def format_row(row):
         return {
             "SEQUENCE": (row.get("SEQUENCE") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
-def gene_editing(dataset):
-    def format_row(row):
-        return {
-            "Question": (row.get("Question") or "").strip(),
-            "Option_A": (row.get("Option_A") or "").strip(),
-            "Option_B": (row.get("Option_B") or "").strip(),
-            "Option_C": (row.get("Option_C") or "").strip(),
-            "Option_D": (row.get("Option_D") or "").strip(),
-            "Option_E": (row.get("Option_E") or "").strip(),
             "Answer": (row.get("Answer") or "").strip()
         }
     return dataset.map(format_row)
