@@ -4,7 +4,13 @@ test_split: test
 
 task: pxrd_lattice_prediction
 process_docs: !function utils.process_pxrd_lattice
-
+process_results: !function utils.process_pxrd_lattice_prediction
+filter_list:
+  - name: "xml-extract"
+    filter:
+      - function: "regex"
+        regex_pattern: "<answer>(.*?)</answer>"
+        group_select: 0
 doc_to_text: >
   You are an expert in crystallography and materials informatics.
 
@@ -12,9 +18,11 @@ doc_to_text: >
   predict the lattice parameters of the material (a, b, c) in angstroms.
 
   Please return your answer as a comma-separated list of numbers, with no units or extra text!
-  For example, this "a = 13, b = 13, c = 14" is an invalid answer, while "13, 13, 14" is valid.
+  For example, this "a = 13, b = 13, c = 14" is an invalid answer, while <answer>13, 13, 14</answer> is valid.
 
-  Only provide the lattice parameters in your answer, do not include any additional text or comments!
+  Only provide the lattice parameters in your answer, do not include any additional text.
+  You should only responed in the format of "<answer>{value1}, {value2}, {value3}</answer>".
+  Response Example: <answer>13, 13, 14</answer>
 
   PXRD peak positions:
   {{pxrd}}
@@ -24,11 +32,12 @@ doc_to_text: >
   Miller indices: {{miller_indices}}
 
   Lattice parameters:
+
 doc_to_target: target
 output_type: generate_until
 
 generation_kwargs:
-  max_tokens: 20
+  max_tokens: 25000
   do_sample: false
   temperature: 0.0
   until:
@@ -36,6 +45,8 @@ generation_kwargs:
     - "<|im_end|>"
 
 num_fewshot: 0
+
+
 
 metric_list:
   - metric: mae

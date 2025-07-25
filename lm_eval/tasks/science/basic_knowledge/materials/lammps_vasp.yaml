@@ -3,6 +3,7 @@ dataset_name: lammps-vasp
 test_split: test
 
 process_docs: !function utils.process_lammps_vasp
+process_results: !function utils.process_lammps_vasp_prediction
 doc_to_text: >
   You are an expert in computational materials science. Based on the question below, choose the correct answer(s).
   Wrap your final answer(s) in <answer>X</answer> tags, where X can be a single letter or comma-separated list of letters.
@@ -33,7 +34,7 @@ filter_list:
         fallback: "[invalid]"
 
 generation_kwargs:
-  max_tokens: 100
+  max_tokens: 4096
   until:
     - "</s>"
     - "<|im_end|>"
