@@ -44,27 +44,17 @@ def fragment_completion(dataset):
         }
     return dataset.map(format_row)
 
-def descriptor_prediction(dataset):
-    def format_row(row):
-        return {
-            "INPUT_SMILES": (row.get("INPUT_SMILES") or "").strip(),
-            "Answer_HBD": (row.get("Answer_HBD") or "").strip(),
-            "Answer_HBA": (row.get("Answer_HBA") or "").strip(),
-            "Answer_MW": (row.get("Answer_MW") or "").strip(),
-            "Answer_LogP": (row.get("Answer_LogP") or "").strip()
-        }
-    return dataset.map(format_row)
-
 def process_descriptor_prediction(doc, results):
-    Answer_HBD = doc["Answer_HBD"]
-    Answer_HBA = doc["Answer_HBA"]
-    Answer_MW = doc["Answer_MW"]
-    Answer_LogP = doc["Answer_LogP"]
-    answer = results[0]
-    HBD = answer.split(",")[0]
-    HBA = answer.split(",")[1]
-    MW = answer.split(",")[2]
-    LogP = answer.split(",")[3]
+    Answer_HBD = str(doc["Answer_HBD"]).strip()
+    Answer_HBA = str(doc["Answer_HBA"]).strip()
+    Answer_MW = str(doc["Answer_MW"]).strip()
+    Answer_LogP = str(doc["Answer_LogP"]).strip()
+    answer = results[0][0] if results and results[0] else ""
+    parts = [p.strip() for p in answer.split(",")] if answer else []
+    # Ensure we have exactly 4 parts, fill missing with empty string
+    while len(parts) < 4:
+        parts.append("")
+    HBD, HBA, MW, LogP = parts[:4]
     
     # Count exact matches
     matches = 0

@@ -1,9 +1,6 @@
-dataset_path: yhqu/descriptor_prediction
-dataset_name: null
-dataset_kwargs: null
-test_split: train
-fewshot_split: train
-process_docs: !function utils.descriptor_prediction
+include: _default_biology_yaml
+dataset_name: descriptor-prediction
+# process_docs: !function utils.descriptor_prediction
 doc_to_text: >
   You are an expert biochemist specializing in molecular property calculation. Your task is to analyze a molecule's SMILES representation and calculate its key molecular descriptors.
 
@@ -30,22 +27,6 @@ doc_to_text: >
 doc_to_target: Answer
 process_results: !function utils.process_descriptor_prediction
 task: descriptor_prediction
-filter_list:
-  - name: "xml-extract"
-    filter:
-      - function: "regex"
-        regex_pattern: "<ANSWER>(.*?)</ANSWER>" # to capture responses like <answer>A\\</answer>
-        group_select: 0
-        fallback: "[invalid]"
-generation_kwargs:
-  max_tokens: 4096
-  until:
-    - "</s>"
-    - "Q:"
-    - "<|im_end|>"
-  do_sample: false
-  temperature: 0.0
-num_fewshot: 0
 metric_list:
   - metric: acc
     aggregation: mean
