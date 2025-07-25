@@ -1,0 +1,28 @@
+include: _default_biology_yaml
+dataset_name: enzymatic-reaction-prediction
+# process_docs: !function utils.descriptor_prediction
+doc_to_text: >
+  You are an expert biochemist specializing in enzymatic reaction prediction. Your task is to predict the product of an enzymatic reaction given the reactants, enzyme EC number, and supporting information.
+
+  Given Information:
+  - Reactants (SMILES): {{REACTANTS}}
+  - EC Number: {{EC_NUMBER}}
+  - Supporting Information: {{SUPPORTING_INFORMATION}}
+  - Specific Instructions: {{SPECIFIC_INSTRUCTIONS}}
+
+  Requirements:
+  - Predict the reaction product in canonical SMILES notation
+  - Consider the enzyme's reaction mechanism and specificity
+  - Ensure correct protonation state at physiological conditions
+  - Follow any specific transformation instructions provided
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[PRODUCT_CANONICAL_SMILES]</ANSWER>
+doc_to_target: Answer
+process_results: !function utils.process_enzymatic_reaction_prediction
+task: enzymatic_reaction_prediction
+metric_list:
+  - metric: acc
+    aggregation: mean
+    higher_is_better: true

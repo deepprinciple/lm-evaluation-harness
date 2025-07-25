@@ -80,17 +80,6 @@ def protein_localization(dataset):
         }
     return dataset.map(format_row)
 
-def enzymatic_reaction_prediction(dataset):
-    def format_row(row):
-        return {
-            "REACTANTS": (row.get("REACTANTS") or "").strip(),
-            "EC_NUMBER": (row.get("EC_NUMBER") or "").strip(),
-            "SUPPORTING_INFORMATION": (row.get("SUPPORTING_INFORMATION") or "").strip(),
-            "SPECIFIC_INSTRUCTIONS": (row.get("SPECIFIC_INSTRUCTIONS") or "").strip(),
-            "Answer": (row.get("Answer") or "").strip()
-        }
-    return dataset.map(format_row)
-
 def gene_editing(dataset):
     def format_row(row):
         return {
@@ -151,4 +140,21 @@ def process_crispr_delivery(doc, results):
     # Calculate accuracy as actual score divided by max possible score
     acc = actual_score / max_possible_score if max_possible_score > 0 else 0.0
 
+    return {"acc": acc}
+
+def process_enzymatic_reaction_prediction(doc, results):
+    response = results[0][0] if results and results[0] else ""
+    reference = doc["Answer"]
+    try:
+        from rdkit import Chem
+    except ImportError:
+        raise ImportError(
+            "This evaluation requires RDKit. Please install rdkit via `conda install -c conda-forge rdkit`"
+        )
+    response_mol = Chem.MolFromSmiles(response)
+    reference_mol = Chem.MolFromSmiles(reference)
+    if response_mol and reference_mol:
+        acc = int(Chem.MolToSmiles(response_mol) == Chem.MolToSmiles(reference_mol))
+    else:
+        acc = 0.0
     return {"acc": acc}
