@@ -1,4 +1,6 @@
 # These Q&A sets all differ slightly in set up, so a function is created for each of them.
+import ast
+
 
 def process_lammps_vasp(dataset):
     def format_row(row):
@@ -87,3 +89,16 @@ def process_materials_science_qa(dataset):
             "Answer"  : s("Answer"),
         }
     return dataset.map(format_row)
+
+
+def process_lammps_vasp_prediction(doc, results):
+    reference = doc['Answer'] 
+    answer = results[0]
+    if len(answer) == 0:
+        return {"acc": 0.0}
+    else:
+        answer = answer[0]
+        answer_list = answer.split(',')
+        ref_list = reference.split(',')
+        correct = len([x for x in answer_list if x in ref_list])
+        return {"acc": correct / max(len(ref_list), len(answer_list))}

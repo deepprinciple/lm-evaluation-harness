@@ -1,8 +1,10 @@
 from datasets import Dataset
 from sklearn.metrics import f1_score
 from collections import defaultdict
-
-
+import logging
+import rdkit
+from rdkit import Chem
+from lm_eval.utils import eval_logger
 
 def process_mof_water_stability(dataset):
     # Rename columns to match doc_to_text variables
@@ -68,3 +70,33 @@ def process_safety_prediction(dataset):
     return dataset.map(format_row)
 
 
+def process_pxrd_lattice_prediction(results, doc):
+    # 使用正则表达式提取三个浮点数
+    import re
+    pattern = r"(-?\d+\.?\d*),\s*(-?\d+\.?\d*),\s*(-?\d+\.?\d*)"
+    eval_logger.info(results)
+    eval_logger.info(doc)
+    match_results = re.search(pattern, results.get("target", ""))
+    match_doc = re.search(pattern, doc[0][0])
+    if not match_doc:
+        return {"acc": 0.0}
+    
+    # 获取三个浮点数
+    a_doc, b_doc, c_doc = match_doc.groups()
+    a_results, b_results, c_results = match_results.groups()
+    try:
+        # 转换为浮点数以验证格式
+        float(a_doc), float(b_doc), float(c_doc)
+        float(a_results), float(b_results), float(c_results)
+    except ValueError:
+        return {"acc": 0.0}
+    correct = 0
+    if abs(float(a_doc) - float(a_results)) < 3:
+        correct += 1
+    if abs(float(b_doc) - float(b_results)) < 3:
+        correct += 1
+    if abs(float(c_doc) - float(c_results)) < 3:
+        correct += 1
+    return {
+        "acc": correct / 3
+    }
