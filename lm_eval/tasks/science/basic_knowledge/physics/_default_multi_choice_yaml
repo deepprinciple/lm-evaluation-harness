@@ -19,8 +19,8 @@ filter_list:
   - name: "xml-extract"
     filter:
       - function: "regex"
-        regex_pattern: "<answer>([^<]*)</answer>" # Improved to handle complex answers like "A, B" or "ABD"
-        group_select: 1
+        regex_pattern: "(?<=<answer>)[^<]+(?=</answer>)"  # Use lookbehind/lookahead to match content directly
+        group_select: 0  # Use group 0 to avoid IndexError as user suggested
         fallback: "[invalid]"
 generation_kwargs:
   max_tokens: 4096
