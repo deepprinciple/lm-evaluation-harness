@@ -9,8 +9,9 @@ doc_to_text: >
   
   Question: {{Question.strip()}}
   
-  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
-  <Math>your mathematical expression</Math>
+  Provide your reasoning first, then conclude with your final answer. 
+  IMPORTANT: You MUST put your final mathematical answer inside <Math> tags like this: <Math>your mathematical expression</Math>
+  Do not use any other format for your final answer.
   
   Answer:
 doc_to_target: Answer
@@ -24,7 +25,6 @@ generation_kwargs:
   max_tokens: 4096
   until:
     - "</s>"
-    - "Question:"
     - "<|im_end|>"
   do_sample: false
   temperature: 0.0

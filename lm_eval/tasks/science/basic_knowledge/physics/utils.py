@@ -48,12 +48,70 @@ def extract_math_answers(resps, docs):
         if math_match:
             return math_match.group(1).strip()
             
-        # Extract content from <Math>...<\Math> tags (with backslash)
+        # Extract content from <Math>...<\Math> tags (dataset format error)
         math_match = re.search(r'<Math>([^<]+)<\\?/?Math>', text, re.IGNORECASE | re.DOTALL)
         if math_match:
             return math_match.group(1).strip()
         
-        # Return original text for Math-Verify to handle \\boxed{} and other formats
+        # If no Math tags found, try to extract the mathematical expression from the last part
+        lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
+        if lines:
+            # Look at the last few lines for the final answer
+            last_lines = lines[-3:] if len(lines) >= 3 else lines
+            
+            for line in reversed(last_lines):  # Start from the last line
+                # Look for patterns like "c ∼ expression" or "answer = expression"
+                math_expr_patterns = [
+                    r'.*[∼~=]\s*(.+)$',  # c ∼ d^NC or answer = expression
+                    r'.*:\s*(.+)$',      # Therefore: expression
+                    r'^\s*\\?\[\s*(.+)\s*\\?\]$',  # \\[expression\\]
+                    r'^\s*\$\$(.+)\$\$\s*$',       # $$expression$$
+                ]
+                
+                for pattern in math_expr_patterns:
+                    match = re.search(pattern, line)
+                    if match:
+                        extracted = match.group(1).strip()
+                        if extracted and len(extracted) > 1 and 'd' in extracted:  # Likely final answer with 'd'
+                            return extracted
+            
+            # If no specific pattern found, try last line with mathematical symbols
+            for line in reversed(last_lines):
+                if any(symbol in line for symbol in ['d^', '^', '∼', '~', '=']):
+                    # Try to extract the expression part after common words
+                    expr_after_patterns = [
+                        r'.*(?:answer|final|result|thus|therefore|hence)[^:]*:\s*(.+)$',
+                        r'.*[∼~=]\s*(.+)$',
+                        r'^(.+)$'  # Last resort
+                    ]
+                    
+                    for pattern in expr_after_patterns:
+                        match = re.search(pattern, line, re.IGNORECASE)
+                        if match:
+                            extracted = match.group(1).strip()
+                            if extracted and len(extracted) > 1:
+                                return extracted
+            
+            # Final fallback: return the last line
+            return lines[-1]
+        
+        # Look for mathematical expressions in LaTeX format (fallback)
+        latex_patterns = [
+            r'\\?\[[^\]]+\\?\]',  # [expression]
+            r'\$\$[^$]+\$\$',     # $$expression$$
+            r'\$[^$]+\$',         # $expression$
+        ]
+        
+        # Find all matches and take the last one
+        all_matches = []
+        for pattern in latex_patterns:
+            matches = re.findall(pattern, text)
+            all_matches.extend(matches)
+        
+        if all_matches:
+            return all_matches[-1].strip()
+        
+        # Return original text for Math-Verify to handle other formats
         return text
     
     try:
