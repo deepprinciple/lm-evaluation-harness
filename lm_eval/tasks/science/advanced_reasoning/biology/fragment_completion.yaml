@@ -1,0 +1,33 @@
+include: _default_biology_yaml
+dataset_name: fragment-completion
+doc_to_text: >
+  You are an expert biochemist specializing in molecular fragment analysis and property prediction. Your task is to identify which complete molecule from the given options best matches the masked fragment and target property value.
+
+  Given Information:
+  - Masked SMILES Fragment: {{MASKED_SMILES}}
+  - Target Property Value: {{PROPERTY_VALUE}}
+  - Property Definition: LD50
+
+  Options:
+  A: {{option_A}}
+  B: {{option_B}}
+  C: {{option_C}}
+  D: {{option_D}}
+
+  Task:
+  Determine which option molecule, when the masked portion is revealed, would have a property value closest to the target value.
+
+  Instructions:
+  1. Analyze how each option completes the masked SMILES fragment
+  2. Evaluate which complete molecule would have the property value closest to the target
+  3. Consider both structural compatibility and property prediction
+
+  Requirements:
+  - Provide only the letter of your chosen answer
+  - Do not include explanations or reasoning
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[Single letter: A, B, C, or D]</ANSWER>
+doc_to_target: Answer
+task: fragment_completion
