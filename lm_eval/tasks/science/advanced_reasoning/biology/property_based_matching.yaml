@@ -6,7 +6,7 @@ doc_to_text: >
   Given Information:
   - Target Molecule SMILES: {{TARGET_SMILES}}
   - Target Property Value: {{PROPERTY_VALUE}}
-  - Property Definition: LD50
+  - Property Definition: {{PROPERTY_TYPE}}
 
   Options:
   A: {{option_A}}

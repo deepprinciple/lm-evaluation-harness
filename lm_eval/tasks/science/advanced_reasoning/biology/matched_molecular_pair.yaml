@@ -6,8 +6,8 @@ doc_to_text: >
   Given Information:
   - Target Molecule SMILES: {{TARGET_SMILES}}
   - Target Property Value: {{PROPERTY_VALUE}}
-  - Property Definition: LD50
-  - Comparison Molecule SMILES: {{COMPARISON_SMILES}}
+  - Property Definition: {{PROPERTY_TYPE}}
+  - Comparison Molecule SMILES: {{MATCH_SMILES}}
 
   Task:
   Determine whether the comparison molecule has a HIGHER or LOWER property value than the target molecule.
