@@ -1,0 +1,8 @@
+group: physics_exact_match
+task:
+  - exact_match_astrophysics_cosmology
+  - exact_match_quantum_information
+  - exact_match_condensed_matter_physics
+  - exact_match_core_knowledge
+  - exact_match_condense_matter_physics
+  - exact_match_probability_statsitics 

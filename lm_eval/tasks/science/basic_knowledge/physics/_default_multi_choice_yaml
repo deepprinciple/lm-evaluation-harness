@@ -1,5 +1,5 @@
-dataset_path: DeepPrinciple/physics_multiple_choice
-dataset_name: null
+dataset_path: deep-principle/science_physics
+dataset_name: multiple_choice
 test_split: train  # Dataset has 75 rows, 72 with valid Task, 3 missing Task
 
 # Process ALL documents to avoid losing the 3 examples with missing Task
@@ -23,11 +23,12 @@ filter_list:
         group_select: 0
         fallback: "[invalid]"
 generation_kwargs:
-  max_tokens: 4096
+  max_tokens: 4096  # Restored for OpenAI API compatibility
   until:
     - "</s>"
-    - "Q:"
     - "<|im_end|>"
+  do_sample: false
+  temperature: 0.0
 metric_list:
   - metric: "exact_match"
     aggregation: "mean"

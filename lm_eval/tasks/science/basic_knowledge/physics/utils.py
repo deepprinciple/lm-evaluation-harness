@@ -8,24 +8,23 @@ def process_all_docs(dataset):
     """Process all documents without filtering - for datasets with missing Task fields"""
     return dataset
 
-# Process functions for all tasks (maintain compatibility with existing configs)
-# ✅ = Has data in exact match dataset, ❌ = No data but function exists for compatibility
-process_quantum_information = partial(process_docs, task="Quantum Information")  # ✅ 8 examples
-process_dmrg_tensor_networks = partial(process_docs, task="DMRG/Tensor Network")  # ✅ 2 examples  
-process_phase_classification_transitions = partial(process_docs, task="Phase Classification & Transitions")  # ✅ 1 example
-process_statistical_mechanics = partial(process_docs, task="Statistical Mechanics")  # ✅ 2 examples
-process_quantum_optics = partial(process_docs, task="Quantum Optics")  # ✅ 4 examples
+# Process functions for tasks that actually exist in the deep-principle/science_physics dataset
+# Based on inspection of exact_match and multiple_choice subsets
 
-# Functions without data in exact match dataset (kept for compatibility with existing configs)
-process_quantum_compilation_hamiltonian_compilation = partial(process_docs, task="Quantum Compilation, Hamiltonian Compilation")  # ❌ 0 examples
-process_general_relativity_cosmology = partial(process_docs, task="General Relativity and Cosmology")  # ❌ 0 examples
-process_condensed_matter_physics = partial(process_docs, task="Condensed Matter Physics")  # ❌ 0 examples
-process_ground_state_discovery = partial(process_docs, task="Ground State Discovery")  # ❌ 0 examples
-process_quantum_field_theory = partial(process_docs, task="Quantum Field Theory")  # ❌ 0 examples
-process_amo_quantum_optics = partial(process_docs, task="AMO / Quantum Optics")  # ❌ 0 examples
-process_algebraic_topology = partial(process_docs, task="Algebraic Topology")  # ❌ 0 examples
-process_electromagnetism = partial(process_docs, task="Electromagnetism")  # ❌ 0 examples
-process_core_knowledge = partial(process_docs, task="Core Knowledge")  # ❌ 0 examples
+# Tasks in both exact_match and multiple_choice subsets:
+process_astrophysics_cosmology = partial(process_docs, task="Astrophysics/Cosmology")  # ✅ Available in both subsets
+process_quantum_information = partial(process_docs, task="Quantum Information")  # ✅ Available in both subsets
+
+# Tasks only in exact_match subset:
+process_condense_matter_physics = partial(process_docs, task="Condense Matter Physics")  # ✅ Available in exact_match (note: typo in dataset)
+process_probability_statsitics = partial(process_docs, task="Probability/Statsitics")  # ✅ Available in exact_match (note: typo in dataset)
+
+# Tasks only in multiple_choice subset:
+process_computational_physics = partial(process_docs, task="Computational Physics")  # ✅ Available in multiple_choice
+process_condensed_matter_physics = partial(process_docs, task="Condensed Matter Physics")  # ✅ Available in multiple_choice (correct spelling)
+process_core_knowledge = partial(process_docs, task="Core Knowledge")  # ✅ Available in multiple_choice
+process_high_energy_physics = partial(process_docs, task="High-energy Physics")  # ✅ Available in multiple_choice
+process_probability_statistics = partial(process_docs, task="Probability/Statistics")  # ✅ Available in multiple_choice (correct spelling)
 
 def extract_math_answers(resps, docs):
     """Direct Math-Verify answer extraction using native parse() with preprocessing"""

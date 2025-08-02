@@ -22,7 +22,7 @@ filter_list:
       - function: "custom"
         filter_fn: !function utils.extract_math_answers
 generation_kwargs:
-  max_tokens: 4096
+  max_tokens: 4096  # Restored for OpenAI API compatibility
   until:
     - "</s>"
     - "<|im_end|>"

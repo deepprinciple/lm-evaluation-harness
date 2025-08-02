@@ -1,0 +1,13 @@
+include: "_default_exact_match_yaml"
+# Task: Probability/Statsitics exact match questions (note: typo in dataset)
+process_docs: !function utils.process_probability_statsitics
+doc_to_text: >
+  You are an expert in Probability and Statistics. Please solve the following question step by step.
+  
+  Question: {{Question.strip()}}
+  
+  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
+  <Math>your mathematical expression</Math>
+  
+  Answer:
+task: exact_match_probability_statsitics 

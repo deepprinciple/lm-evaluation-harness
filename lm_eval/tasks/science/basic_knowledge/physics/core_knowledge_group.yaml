@@ -1,0 +1,4 @@
+group: core_knowledge
+task:
+  - exact_match_core_knowledge
+  - multiple_choice_core_knowledge 
