@@ -1,0 +1,17 @@
+group: physics_all
+task:
+  # Exact Match Tasks
+  - exact_match_astrophysics_cosmology
+  - exact_match_quantum_information
+  - exact_match_condensed_matter_physics
+  - exact_match_core_knowledge
+  - exact_match_condense_matter_physics
+  - exact_match_probability_statsitics
+  # Multiple Choice Tasks
+  - multiple_choice_astrophysics_cosmology
+  - multiple_choice_quantum_information
+  - multiple_choice_condensed_matter_physics
+  - multiple_choice_core_knowledge
+  - multiple_choice_computational_physics
+  - multiple_choice_high_energy_physics
+  - multiple_choice_probability_statistics 

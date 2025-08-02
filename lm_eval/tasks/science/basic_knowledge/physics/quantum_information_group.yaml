@@ -1,0 +1,4 @@
+group: quantum_information
+task:
+  - exact_match_quantum_information
+  - multiple_choice_quantum_information 

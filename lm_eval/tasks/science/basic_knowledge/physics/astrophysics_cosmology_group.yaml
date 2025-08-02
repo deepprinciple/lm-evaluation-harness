@@ -1,0 +1,4 @@
+group: astrophysics_cosmology
+task:
+  - exact_match_astrophysics_cosmology
+  - multiple_choice_astrophysics_cosmology 
