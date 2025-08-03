@@ -19,12 +19,14 @@ process_quantum_software_usage = partial(process_docs, task='Quantum Software Us
 def process_smiles(doc, results):
     try:
         from rdkit import Chem
+        from rdkit.Chem import rdFingerprintGenerator
+        from rdkit.Chem import DataStructs
     except ImportError as e:
         raise ImportError(
             "This evaluation requires RDKit. Please install rdkit via `conda install -c conda-forge rdkit`"
         ) from e
 
-    reference = doc.get("SMILES", "")
+    reference = doc.get("Answer", "")
     mols = results[0] if results and isinstance(results[0], list) else results
 
     if not mols:
@@ -34,12 +36,13 @@ def process_smiles(doc, results):
     smiles = mols[0]
     mol = Chem.MolFromSmiles(smiles)
     ref_mol = Chem.MolFromSmiles(reference)
-
     if not mol or not ref_mol:
         return {"acc": 0.0}
 
-    # Compare canonical SMILES
-    pred_canon = Chem.MolToSmiles(mol, canonical=True)
-    ref_canon = Chem.MolToSmiles(ref_mol, canonical=True)
+    mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2,fpSize=2048)
+    # Compute Tanimoto similarity between Morgan fingerprints
+    fp_pred = mfpgen.GetFingerprint(mol)
+    fp_ref = mfpgen.GetFingerprint(ref_mol)
+    tanimoto = DataStructs.TanimotoSimilarity(fp_pred, fp_ref)
 
-    return {"acc": 1.0 if pred_canon == ref_canon else 0.0}
+    return {"acc": tanimoto}
