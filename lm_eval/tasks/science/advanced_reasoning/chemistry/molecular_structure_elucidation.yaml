@@ -1,5 +1,5 @@
-dataset_path: openrlhf/rl_data/chenru/structure_elucidation.jsonl
-dataset_name: null
+dataset_path: deep-principle/science-chemistry
+dataset_name: structure_elucidation
 validation_split: null
 test_split: train
 fewshot_split: train
