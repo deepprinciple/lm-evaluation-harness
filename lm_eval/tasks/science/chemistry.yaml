@@ -1,0 +1,8 @@
+group: science_chemistry
+task:
+  - science_chem_forward_reaction_prediction
+  - science_chem_retrosynthesis
+  - science_chem_experimental_techniques
+  - science_chem_molecular_property
+  - science_chem_quantum_software
+  - molecular_structure_elucidation
