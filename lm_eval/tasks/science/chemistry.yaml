@@ -5,4 +5,4 @@ task:
   - science_chem_experimental_techniques
   - science_chem_molecular_property
   - science_chem_quantum_software
-  # - molecular_structure_elucidation
+  - molecular_structure_elucidation
