@@ -1,37 +1,35 @@
 dataset_path: deep-principle/science-chemistry
 dataset_name: structure_elucidation
-validation_split: null
-test_split: train
-fewshot_split: train
-
-process_docs: !function utils.process_molecular_docs
+test_split: test
 
 doc_to_text: >
-  You are a chemist assistant with expertise in molecular structure elucidation. Your task is to determine the molecular structure based on spectroscopic data.
-  
-  Given the following spectroscopic data: {{input}}
-  
-  Determine the molecular structure and provide the SMILES representation of the compound. Answer with only the SMILES string.
-
-doc_to_target: "{{output}}"
+  You are a chemist assistant with expertise in molecular structure elucidation. {{Question}}
+  Requirements:  
+    - Provide the structure in SMILES notation  
+    - The answer should be exact and canonical  
+    - Include only the SMILES string in your answer, wrapped in <SMILES></SMILES> tags  
+  Example answer format:  
+  <SMILES>CCN(CC)CC</SMILES>  
+  Answer:
+doc_to_target: "{{Answer}}"
 task: molecular_structure_elucidation
+process_results: !function utils.process_smiles
 filter_list:
-  - name: "remove-whitespace"
+  - name: "xml-extract"
     filter:
-      - function: "remove_whitespace"
-  - name: "normalize-smiles"
-    filter:
-      - function: "normalize_smiles_answer"
+      - function: "regex"
+        regex_pattern: "<SMILES>(.*?)</SMILES>"
+        group_select: 0
+        fallback: "[invalid]"
 generation_kwargs:
-  max_tokens: 256
-  temperature: 0.0
-  do_sample: false
+  max_tokens: 4096
   until:
     - "</s>"
+    - "Q:"
     - "<|im_end|>"
-    - "\n\n"
+  do_sample: false
 num_fewshot: 0
 metric_list:
-  - metric: exact_match
+  - metric: acc
     aggregation: mean
-    higher_is_better: true 
+    higher_is_better: true
