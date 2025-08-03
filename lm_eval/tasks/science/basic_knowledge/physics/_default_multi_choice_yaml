@@ -1,6 +1,6 @@
 dataset_path: deep-principle/science_physics
 dataset_name: multiple_choice
-test_split: train  # Dataset has 75 rows, 72 with valid Task, 3 missing Task
+test_split: test  # Dataset has 75 rows, 72 with valid Task, 3 missing Task
 
 # Process ALL documents to avoid losing the 3 examples with missing Task
 process_docs: !function utils.process_all_docs

@@ -1,7 +1,7 @@
 group: physics_core_tasks
 task:
   # Tasks available in both exact_match and multiple_choice subsets
-  - exact_match_astrophysics_cosmology
-  - multiple_choice_astrophysics_cosmology
-  - exact_match_quantum_information
-  - multiple_choice_quantum_information 
+  - astrophysics_cosmology
+  - condensed_matter_physics
+  - quantum_information
+  - probability_statistics 

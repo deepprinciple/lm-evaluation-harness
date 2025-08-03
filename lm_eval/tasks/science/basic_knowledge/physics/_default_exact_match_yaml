@@ -1,6 +1,6 @@
-dataset_path: DeepPrinciple/physics_exact_match
-dataset_name: null
-test_split: train
+dataset_path: deep-principle/science_physics
+dataset_name: exact_match
+test_split: test
 
 # Process ALL documents, not just specific tasks (82/99 examples have None tasks)
 process_docs: !function utils.process_all_docs

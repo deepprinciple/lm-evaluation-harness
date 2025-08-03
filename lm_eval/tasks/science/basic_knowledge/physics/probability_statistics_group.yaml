@@ -1,0 +1,4 @@
+group: probability_statistics
+task:
+  - exact_match_probability_statistics
+  - multiple_choice_probability_statistics 

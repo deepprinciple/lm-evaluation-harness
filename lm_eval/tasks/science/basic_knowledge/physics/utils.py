@@ -14,17 +14,13 @@ def process_all_docs(dataset):
 # Tasks in both exact_match and multiple_choice subsets:
 process_astrophysics_cosmology = partial(process_docs, task="Astrophysics/Cosmology")  # ✅ Available in both subsets
 process_quantum_information = partial(process_docs, task="Quantum Information")  # ✅ Available in both subsets
-
-# Tasks only in exact_match subset:
-process_condense_matter_physics = partial(process_docs, task="Condense Matter Physics")  # ✅ Available in exact_match (note: typo in dataset)
-process_probability_statsitics = partial(process_docs, task="Probability/Statsitics")  # ✅ Available in exact_match (note: typo in dataset)
+process_condensed_matter_physics = partial(process_docs, task="Condensed Matter Physics") 
+process_probability_statistics = partial(process_docs, task="Probability/Statistics")
 
 # Tasks only in multiple_choice subset:
 process_computational_physics = partial(process_docs, task="Computational Physics")  # ✅ Available in multiple_choice
-process_condensed_matter_physics = partial(process_docs, task="Condensed Matter Physics")  # ✅ Available in multiple_choice (correct spelling)
 process_core_knowledge = partial(process_docs, task="Core Knowledge")  # ✅ Available in multiple_choice
 process_high_energy_physics = partial(process_docs, task="High-energy Physics")  # ✅ Available in multiple_choice
-process_probability_statistics = partial(process_docs, task="Probability/Statistics")  # ✅ Available in multiple_choice (correct spelling)
 
 def extract_math_answers(resps, docs):
     """Direct Math-Verify answer extraction using native parse() with preprocessing"""

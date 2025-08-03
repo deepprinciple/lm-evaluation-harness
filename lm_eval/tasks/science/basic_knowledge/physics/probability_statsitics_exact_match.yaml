@@ -1,6 +1,6 @@
 include: "_default_exact_match_yaml"
 # Task: Probability/Statsitics exact match questions (note: typo in dataset)
-process_docs: !function utils.process_probability_statsitics
+process_docs: !function utils.process_probability_statistics
 doc_to_text: >
   You are an expert in Probability and Statistics. Please solve the following question step by step.
   
@@ -10,4 +10,4 @@ doc_to_text: >
   <Math>your mathematical expression</Math>
   
   Answer:
-task: exact_match_probability_statsitics 
+task: exact_match_probability_statistics
