@@ -25,7 +25,7 @@ def process_smiles(doc, results):
         raise ImportError(
             "This evaluation requires RDKit. Please install rdkit via `conda install -c conda-forge rdkit`"
         ) from e
-
+      
     reference = doc.get("Answer", "")
     mols = results[0] if results and isinstance(results[0], list) else results
 

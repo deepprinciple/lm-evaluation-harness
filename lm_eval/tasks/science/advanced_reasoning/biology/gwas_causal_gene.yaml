@@ -1,0 +1,20 @@
+include: _default_biology_yaml
+dataset_name: gwas-causal-gene
+doc_to_text: >
+  You are an expert in genetics and GWAS analysis. Your task is to identify the most likely causal gene within a genomic locus for a given GWAS phenotype.
+  Given Information:
+
+  GWAS Phenotype: {{PHENOTYPE}}
+  Genes in Locus: {{GENE_LIST}}
+
+  Requirements:
+
+  Analyze the biological relationship between the phenotype and each gene in the locus
+  Consider known gene functions, pathways, and disease associations
+  Select the gene most likely to be causally related to the phenotype
+  Choose only from the genes provided in the list
+  Provide only the gene symbol as your answer
+
+  Output Format:
+  <ANSWER>[gene symbol from the provided list]</ANSWER>
+task: gwas_causal_gene

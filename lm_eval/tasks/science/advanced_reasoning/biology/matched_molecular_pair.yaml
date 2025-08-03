@@ -1,0 +1,28 @@
+include: _default_biology_yaml
+dataset_name: matched-molecular-pair
+doc_to_text: >
+  You are an expert biochemist specializing in molecular property prediction. Your task is to compare the property values of two molecules based on their SMILES structures.
+
+  Given Information:
+  - Target Molecule SMILES: {{TARGET_SMILES}}
+  - Target Property Value: {{PROPERTY_VALUE}}
+  - Property Definition: {{PROPERTY_TYPE}}
+  - Comparison Molecule SMILES: {{MATCH_SMILES}}
+
+  Task:
+  Determine whether the comparison molecule has a HIGHER or LOWER property value than the target molecule.
+
+  Options:
+  A: Higher (comparison molecule has higher property value than target)
+  B: Lower (comparison molecule has lower property value than target)
+
+  Requirements:
+  - Analyze the structural features of both molecules
+  - Predict which molecule has the higher property value
+  - Provide only the letter of your answer
+  - Do not include explanations or reasoning
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[Single letter: A or B]</ANSWER>
+task: matched_molecular_pair

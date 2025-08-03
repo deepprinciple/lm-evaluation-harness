@@ -1,0 +1,9 @@
+group: physics_multiple_choice
+task:
+  - multiple_choice_astrophysics_cosmology
+  - multiple_choice_quantum_information
+  - multiple_choice_condensed_matter_physics
+  - multiple_choice_core_knowledge
+  - multiple_choice_computational_physics
+  - multiple_choice_high_energy_physics
+  - multiple_choice_probability_statistics 

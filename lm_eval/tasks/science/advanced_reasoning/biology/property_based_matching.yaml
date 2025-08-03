@@ -1,0 +1,30 @@
+include: _default_biology_yaml
+dataset_name: property-based-matching
+doc_to_text: >
+  You are an expert biochemist specializing in molecular property prediction. Your task is to identify which molecule from the given options has a property value closest to the target molecule's property value.
+
+  Given Information:
+  - Target Molecule SMILES: {{TARGET_SMILES}}
+  - Target Property Value: {{PROPERTY_VALUE}}
+  - Property Definition: {{PROPERTY_TYPE}}
+
+  Options:
+  A: {{option_A}}
+  B: {{option_B}}
+  C: {{option_C}}
+  D: {{option_D}}
+
+  Instructions:
+  1. Analyze the structural features of each option molecule
+  2. Compare the predicted property value of each option to the target value
+  3. Select the option whose property value is numerically closest to the target
+  4. Consider that structural similarity often correlates with property similarity
+
+  Requirements:
+  - Provide only the letter of your chosen answer
+  - Do not include explanations or reasoning
+  - Wrap your answer in <ANSWER></ANSWER> tags
+
+  Output Format:
+  <ANSWER>[Single letter: A, B, C, or D]</ANSWER>
+task: property_based_matching

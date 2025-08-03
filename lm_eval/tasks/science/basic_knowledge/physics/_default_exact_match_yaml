@@ -1,0 +1,35 @@
+dataset_path: deep-principle/science_physics
+dataset_name: exact_match
+test_split: test
+
+# Process ALL documents, not just specific tasks (82/99 examples have None tasks)
+process_docs: !function utils.process_all_docs
+doc_to_text: >
+  You are an expert in physics and mathematics. Please solve the following question step by step.
+  
+  Question: {{Question.strip()}}
+  
+  Provide your reasoning first, then conclude with your final answer. 
+  IMPORTANT: You MUST put your final mathematical answer inside <Math> tags like this: <Math>your mathematical expression</Math>
+  Do not use any other format for your final answer.
+  
+  Answer:
+doc_to_target: Answer
+task: exact_match_physics_all
+filter_list:
+  - name: "math-extract"
+    filter:
+      - function: "custom"
+        filter_fn: !function utils.extract_math_answers
+generation_kwargs:
+  max_tokens: 4096  # Restored for OpenAI API compatibility
+  until:
+    - "</s>"
+    - "<|im_end|>"
+  do_sample: false
+  temperature: 0.0
+num_fewshot: 0
+metric_list:
+  - metric: !function utils.math_verify_score
+    aggregation: mean
+    higher_is_better: true

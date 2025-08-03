@@ -1,0 +1,40 @@
+dataset_path: deep-principle/science_physics
+dataset_name: multiple_choice
+test_split: test  # Dataset has 75 rows, 72 with valid Task, 3 missing Task
+
+# Process ALL documents to avoid losing the 3 examples with missing Task
+process_docs: !function utils.process_all_docs
+doc_to_text: >
+  You are an expert in physics. The following are multiple choice questions about physics.
+  Let's think step by step. Please wrap the final answer in XML tags: <answer>X</answer> (where X can be A, B, C, D, or combinations like AB, ABC, etc.)
+  Question: {{Question.strip()}}
+  A: {{Option_A}}
+  B: {{Option_B}}
+  C: {{Option_C}}
+  D: {{Option_D}}
+  Answer:
+doc_to_target: Answer
+task: multiple_choice_physics_all
+filter_list:
+  - name: "xml-extract"
+    filter:
+      - function: "regex"
+        regex_pattern: "<answer>([^<]*)</answer>" # Improved to handle complex answers like "A, B" or "ABD"
+        group_select: 0
+        fallback: "[invalid]"
+generation_kwargs:
+  max_tokens: 4096  # Restored for OpenAI API compatibility
+  until:
+    - "</s>"
+    - "<|im_end|>"
+  do_sample: false
+  temperature: 0.0
+metric_list:
+  - metric: "exact_match"
+    aggregation: "mean"
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+    ignore_numbers: false
+metadata:
+  version: "1.0"
