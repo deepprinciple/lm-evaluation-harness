@@ -58,7 +58,7 @@ def eval_redox_potential(doc, results):
         return {"acc": 0.0}
 
     try:
-        response = float(response)
+        response = float(response[0])
         reference = float(reference)
         threshold = float(threshold)
         if abs(response - reference) <= threshold:
