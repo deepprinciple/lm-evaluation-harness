@@ -5,4 +5,10 @@ task:
   - science_chem_experimental_techniques
   - science_chem_molecular_property
   - science_chem_quantum_software
-  - molecular_structure_elucidation
+  - science_chem_ms_peak_identification
+  - science_chem_reaction_mechanism
+  - nmr_structure_elucidation
+  - IR_structure_elucidation
+  - science_chem_tmc_properties
+  - science_chem_redox_potential
+  - science_chem_mw_to_formula

@@ -15,6 +15,8 @@ process_retrosynthesis = partial(process_docs, task='Retrosynthesis')
 process_experimental_techniques = partial(process_docs, task='Experimental Techniques')
 process_molecular_property = partial(process_docs, task='Molecular Property')
 process_quantum_software_usage = partial(process_docs, task='Quantum Software Usage')
+process_ms_peak_identification = partial(process_docs, task='MS Peak Identification')
+process_reaction_mechanism = partial(process_docs, task='Reaction Mechanism')
 
 def process_smiles(doc, results):
     try:
@@ -46,3 +48,23 @@ def process_smiles(doc, results):
     tanimoto = DataStructs.TanimotoSimilarity(fp_pred, fp_ref)
 
     return {"acc": tanimoto}
+
+def eval_redox_potential(doc, results):
+    reference = doc.get("Answer", "")
+    response = results[0] if results and isinstance(results[0], list) else results
+    threshold = doc.get("threshold", "0.25")
+
+    if not response:
+        return {"acc": 0.0}
+
+    try:
+        response = float(response)
+        reference = float(reference)
+        threshold = float(threshold)
+        if abs(response - reference) <= threshold:
+            return {"acc": 1.0}
+        else:
+            return {"acc": 0.0}
+
+    except:
+        return {"acc": 0.0}
