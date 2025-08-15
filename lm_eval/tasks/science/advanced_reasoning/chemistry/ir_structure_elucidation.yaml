@@ -1,0 +1,15 @@
+include: _default_multiple_choice_yaml
+dataset_path: deep-principle/science-chemistry
+dataset_name: IR_structure_elucidation
+test_split: test
+doc_to_text: >
+  You are a chemist assistant with expertise in molecular structure elucidation. {{Question}}
+  Please wrap the final answer in XML tags: <answer>X</answer> (where X is A, B, C, D or E)
+  A: {{Option_A}}
+  B: {{Option_B}}
+  C: {{Option_C}}
+  D: {{Option_D}}
+  E: {{Option_E}}
+  Answer:
+doc_to_target: Answer
+task: IR_structure_elucidation

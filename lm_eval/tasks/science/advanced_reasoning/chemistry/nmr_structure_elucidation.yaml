@@ -1,5 +1,5 @@
 dataset_path: deep-principle/science-chemistry
-dataset_name: structure_elucidation
+dataset_name: NMR_structure_elucidation
 test_split: test
 
 doc_to_text: >
@@ -11,8 +11,8 @@ doc_to_text: >
   Example answer format:  
   <SMILES>CCN(CC)CC</SMILES>  
   Answer:
-doc_to_target: "{{Answer}}"
-task: molecular_structure_elucidation
+doc_to_target: Answer
+task: nmr_structure_elucidation
 process_results: !function utils.process_smiles
 filter_list:
   - name: "xml-extract"

@@ -1,0 +1,31 @@
+dataset_path: deep-principle/science-chemistry
+dataset_name: mw2formula
+test_split: test
+doc_to_text: >
+  You are an expert Chemist. {{Question}}
+  Please wrap the final answer in XML tags: <answer>X</answer> (where X is Chemical formula like C2H6O)
+  Answer:
+doc_to_target: Answer
+task: science_chem_mw_to_formula
+filter_list:
+  - name: "xml-extract"
+    filter:
+      - function: "regex"
+        regex_pattern: "<answer>(.*?)</answer>"
+        group_select: 0
+        fallback: "[invalid]"
+generation_kwargs:
+  max_tokens: 4096
+  until:
+    - "</s>"
+    - "Q:"
+    - "<|im_end|>"
+  do_sample: false
+num_fewshot: 0
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+    ignore_numbers: false
