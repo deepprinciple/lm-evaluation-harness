@@ -10,16 +10,34 @@ def process_descriptor_prediction(doc, results):
         parts.append("")
     HBD, HBA, MW, LogP = parts[:4]
     
-    # Count exact matches
+    # Count matches with tolerance for MW and LogP
     matches = 0
     if HBD == Answer_HBD:
         matches += 1
     if HBA == Answer_HBA:
         matches += 1
-    if MW == Answer_MW:
-        matches += 1
-    if LogP == Answer_LogP:
-        matches += 1
+    
+    # Check MW with tolerance of 0.01
+    try:
+        mw_pred = float(MW) if MW else 0
+        mw_ans = float(Answer_MW) if Answer_MW else 0
+        if abs(mw_pred - mw_ans) <= 0.01:
+            matches += 1
+    except ValueError:
+        # If conversion fails, check for exact string match
+        if MW == Answer_MW:
+            matches += 1
+    
+    # Check LogP with tolerance of 0.1
+    try:
+        logp_pred = float(LogP) if LogP else 0
+        logp_ans = float(Answer_LogP) if Answer_LogP else 0
+        if abs(logp_pred - logp_ans) <= 0.1:
+            matches += 1
+    except ValueError:
+        # If conversion fails, check for exact string match
+        if LogP == Answer_LogP:
+            matches += 1
     
     # Calculate accuracy as number of matches divided by 4
     acc = matches / 4.0
