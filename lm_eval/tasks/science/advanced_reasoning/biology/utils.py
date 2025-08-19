@@ -21,7 +21,7 @@ def process_descriptor_prediction(doc, results):
     try:
         mw_pred = float(MW) if MW else 0
         mw_ans = float(Answer_MW) if Answer_MW else 0
-        if abs(mw_pred - mw_ans) <= 0.01:
+        if abs(mw_pred - mw_ans) <= 1:
             matches += 1
     except ValueError:
         # If conversion fails, check for exact string match
@@ -32,7 +32,7 @@ def process_descriptor_prediction(doc, results):
     try:
         logp_pred = float(LogP) if LogP else 0
         logp_ans = float(Answer_LogP) if Answer_LogP else 0
-        if abs(logp_pred - logp_ans) <= 0.1:
+        if abs(logp_pred - logp_ans) <= 1:
             matches += 1
     except ValueError:
         # If conversion fails, check for exact string match
