@@ -17,7 +17,7 @@ def process_descriptor_prediction(doc, results):
     if HBA == Answer_HBA:
         matches += 1
     
-    # Check MW with tolerance of 0.01
+    # Check MW with tolerance of 1
     try:
         mw_pred = float(MW) if MW else 0
         mw_ans = float(Answer_MW) if Answer_MW else 0
@@ -28,7 +28,7 @@ def process_descriptor_prediction(doc, results):
         if MW == Answer_MW:
             matches += 1
     
-    # Check LogP with tolerance of 0.1
+    # Check LogP with tolerance of 1
     try:
         logp_pred = float(LogP) if LogP else 0
         logp_ans = float(Answer_LogP) if Answer_LogP else 0
