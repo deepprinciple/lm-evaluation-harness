@@ -369,3 +369,163 @@ class DeepSeekChatCompletion(LocalChatCompletion):
         elif "o3" in self.model:
             output.pop("temperature")
         return output
+
+
+@register_model("gemini-chat-completions")
+class GeminiChatCompletion(TemplateAPI):
+    def __init__(
+        self,
+        base_url="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        tokenizer_backend=None,
+        tokenized_requests=False,
+        **kwargs,
+    ):
+        super().__init__(
+            base_url=base_url,
+            tokenizer_backend=tokenizer_backend,
+            tokenized_requests=tokenized_requests,
+            **kwargs,
+        )
+        if self._batch_size > 1:
+            eval_logger.warning(
+                "Gemini API does not support batching. Defaulting to batch size 1."
+            )
+            self._batch_size = 1
+
+    @cached_property
+    def api_key(self):
+        """Override this property to return the API key for the API request."""
+        key = os.environ.get("GEMINI_API_KEY", None)
+        if key is None:
+            raise ValueError(
+                "API key not found. Please set the `GEMINI_API_KEY` environment variable."
+            )
+        return key
+
+    @cached_property
+    def header(self) -> dict:
+        """Override this property to return the headers for the API request."""
+        return {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
+
+    def _create_payload(
+        self,
+        messages: Union[List[Dict], str],
+        generate=True,
+        gen_kwargs: dict = None,
+        seed=1234,
+        eos=None,
+        **kwargs,
+    ) -> dict:
+        if gen_kwargs is None:
+            gen_kwargs = {}
+        
+        # Handle different message formats
+        if isinstance(messages, str):
+            # Simple string prompt
+            content_text = messages
+        elif isinstance(messages, list) and len(messages) > 0:
+            if isinstance(messages[0], dict):
+                # Chat format - extract the last user message
+                content_text = ""
+                for msg in messages:
+                    if msg.get("role") == "user":
+                        content_text = msg.get("content", "")
+                if not content_text:
+                    # Fallback: combine all messages
+                    content_text = "\n".join([msg.get("content", "") for msg in messages if msg.get("content")])
+            else:
+                # Assume it's a tokenized format that we need to decode
+                content_text = str(messages)
+        else:
+            content_text = str(messages)
+
+        # Build Gemini API payload
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": content_text
+                        }
+                    ]
+                }
+            ]
+        }
+
+        # Add generation config if needed
+        generation_config = {}
+        if generate and gen_kwargs:
+            # Only set maxOutputTokens if user explicitly provides it
+            if "max_tokens" in gen_kwargs:
+                generation_config["maxOutputTokens"] = gen_kwargs.get("max_tokens")
+            elif "max_gen_toks" in gen_kwargs:
+                generation_config["maxOutputTokens"] = gen_kwargs.get("max_gen_toks")
+                
+            if "temperature" in gen_kwargs:
+                generation_config["temperature"] = gen_kwargs.get("temperature", 0)
+            
+            if "top_p" in gen_kwargs:
+                generation_config["topP"] = gen_kwargs.get("top_p")
+                
+            if "top_k" in gen_kwargs:
+                generation_config["topK"] = gen_kwargs.get("top_k")
+
+        if generation_config:
+            payload["generationConfig"] = generation_config
+
+        return payload
+
+    @staticmethod
+    def parse_generations(outputs: Union[Dict, List[Dict]], **kwargs) -> List[str]:
+        res = []
+        if not isinstance(outputs, list):
+            outputs = [outputs]
+            
+        for out in outputs:
+            candidates = out.get("candidates", [])
+            if candidates:
+                # Get the first candidate's content
+                candidate = candidates[0]
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])
+                if parts and "text" in parts[0]:
+                    res.append(parts[0]["text"])
+                else:
+                    res.append("")
+            else:
+                res.append("")
+        return res
+
+    @staticmethod
+    def parse_logprobs(
+        outputs: Union[Dict, List[Dict]],
+        tokens: List[List[int]] = None,
+        ctxlens: List[int] = None,
+        **kwargs,
+    ) -> List[Tuple[float, bool]]:
+        # Gemini API doesn't provide detailed logprobs like OpenAI
+        # Return default values
+        res = []
+        if not isinstance(outputs, list):
+            outputs = [outputs]
+        for out in outputs:
+            # Return a placeholder - Gemini doesn't provide logprobs
+            res.append((0.0, True))
+        return res
+
+    def loglikelihood(self, requests, **kwargs):
+        raise NotImplementedError(
+            "Loglikelihood (and therefore `multiple_choice`-type tasks) is not supported for Gemini API as it does not provide detailed logprobs."
+        )
+
+    def tok_encode(
+        self,
+        string: Union[str, Any],
+        left_truncate_len=None,
+        add_special_tokens=None,
+        **kwargs,
+    ) -> Union[List[str], List[int], Any]:
+        return string
