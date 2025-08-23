@@ -529,3 +529,70 @@ class GeminiChatCompletion(TemplateAPI):
         **kwargs,
     ) -> Union[List[str], List[int], Any]:
         return string
+
+
+@register_model("xai-chat-completions")
+class XAIChatCompletion(OpenAIChatCompletion):
+    def __init__(
+        self,
+        base_url="https://api.x.ai/v1/chat/completions",
+        tokenizer_backend=None,
+        tokenized_requests=False,
+        **kwargs,
+    ):
+        super().__init__(
+            base_url=base_url,
+            tokenizer_backend=tokenizer_backend,
+            tokenized_requests=tokenized_requests,
+            **kwargs,
+        )
+
+    @cached_property
+    def api_key(self):
+        """Override this property to return the API key for the API request."""
+        key = os.environ.get("XAI_API_KEY", None)
+        if key is None:
+            raise ValueError(
+                "API key not found. Please set the `XAI_API_KEY` environment variable."
+            )
+        return key
+
+    def _create_payload(
+        self,
+        messages: List[Dict],
+        generate=False,
+        gen_kwargs: dict = None,
+        seed=1234,
+        eos="<|endoftext|>",
+        **kwargs,
+    ) -> dict:
+        assert type(messages) is not str, (
+            "chat-completions require the --apply_chat_template flag."
+        )
+        gen_kwargs.pop("do_sample", False)
+        # Only set max_tokens if user explicitly provides it
+        max_tokens = None
+        if "max_tokens" in gen_kwargs:
+            max_tokens = gen_kwargs.pop("max_tokens")
+        elif "max_gen_toks" in gen_kwargs:
+            max_tokens = gen_kwargs.pop("max_gen_toks")
+            
+        temperature = gen_kwargs.pop("temperature", 0)
+        # X-AI API does not support stop sequences, so we remove them
+        gen_kwargs.pop("until", None)
+        
+        # X-AI API format - similar to OpenAI but without stop sequences
+        payload = {
+            "messages": messages,
+            "model": self.model,
+            "temperature": temperature,
+            "seed": seed,
+            "stream": False,  # X-AI supports streaming but we default to false for lm-eval
+            **gen_kwargs,
+        }
+        
+        # Only add max_tokens if explicitly set by user
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+            
+        return payload
