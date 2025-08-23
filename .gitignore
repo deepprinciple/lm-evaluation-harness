@@ -46,7 +46,7 @@ examples/wandb/
 # PyInstaller
 *.spec
 
-
+/test
 /result
 /LLM_LIST
 TASK-CHECKLIST

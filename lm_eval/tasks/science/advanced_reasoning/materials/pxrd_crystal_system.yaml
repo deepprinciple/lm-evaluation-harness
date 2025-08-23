@@ -22,7 +22,6 @@ task: pxrd_crystal_system
 output_type: generate_until
 
 generation_kwargs:
-  max_tokens: 10
   do_sample: false
   temperature: 0.0
   until:

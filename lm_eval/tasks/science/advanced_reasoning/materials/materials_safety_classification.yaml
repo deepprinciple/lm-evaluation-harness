@@ -17,7 +17,6 @@ task: materials_safety_classification
 output_type: generate_until
 
 generation_kwargs:
-  max_tokens: 3
   do_sample: false
   temperature: 0.0
   until:
