@@ -347,11 +347,13 @@ class AnthropicChat(LocalCompletionsAPI):
         out = {
             "messages": cleaned_messages,
             "model": self.model,
-            "max_tokens": max_tokens,
+            "max_tokens": 25000,
             "temperature": temperature,
             "stop_sequences": stop,
             **gen_kwargs,
         }
+        eval_logger.info(f"max_tokens: {out['max_tokens']}")
+        
         if system:
             out["system"] = system
         return out
