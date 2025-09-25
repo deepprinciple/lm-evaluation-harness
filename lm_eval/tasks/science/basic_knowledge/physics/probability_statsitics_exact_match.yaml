@@ -6,8 +6,7 @@ doc_to_text: >
   
   Question: {{Question.strip()}}
   
-  Provide your reasoning first, then conclude with your final answer. Please put your final answer in the format:
-  <Math>your mathematical expression</Math>
+  Provide your reasoning first, then conclude with your final answer. Please put your final answer in this exact format: Final Answer: \boxed{your mathematical expression}
   
   Answer:
 task: exact_match_probability_statistics
