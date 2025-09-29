@@ -141,49 +141,65 @@ def extract_math_answers(resps, docs):
 
 def math_verify_score(predictions, references):
     """Direct Math-Verify verification using native parse() + verify()"""
+    
+    def extract_final_value(value):
+        """Recursively extract the final non-list value from nested lists"""
+        while isinstance(value, list) and len(value) > 0:
+            value = value[0]
+        return value
+    
+    def normalize_for_comparison(value):
+        """Normalize value for string comparison"""
+        final_value = extract_final_value(value)
+        if isinstance(final_value, str) and final_value.startswith('[') and final_value.endswith(']'):
+            # Handle stringified list
+            inner = final_value[1:-1].strip()
+            if inner.startswith("'") and inner.endswith("'"):
+                final_value = inner[1:-1]
+            elif inner.startswith('"') and inner.endswith('"'):
+                final_value = inner[1:-1]
+            else:
+                final_value = inner
+        return str(final_value).strip()
+    
     try:
         from math_verify import parse, verify
         
         correct = 0
         for pred, ref in zip(predictions, references):
             try:
-                # Handle case where pred might be a nested list
-                if isinstance(pred, list) and len(pred) > 0:
-                    pred = pred[0]  # Take the first element
-                elif isinstance(pred, str) and pred.startswith('[') and pred.endswith(']'):
-                    # Handle stringified list
-                    inner = pred[1:-1].strip()
-                    if inner.startswith("'") and inner.endswith("'"):
-                        pred = inner[1:-1]
-                    elif inner.startswith('"') and inner.endswith('"'):
-                        pred = inner[1:-1]
-                    else:
-                        pred = inner
+                # Extract final values from nested structures
+                pred_final = extract_final_value(pred)
+                ref_final = extract_final_value(ref)
                 
                 # Parse both prediction and reference using Math-Verify
-                parsed_pred = parse(str(pred))
-                parsed_ref = parse(str(ref))
+                parsed_pred = parse(str(pred_final))
+                parsed_ref = parse(str(ref_final))
                 
                 # Use parsed expressions if available, otherwise use strings
-                pred_expr = parsed_pred[0] if parsed_pred else str(pred)
-                ref_expr = parsed_ref[0] if parsed_ref else str(ref)
+                pred_expr = parsed_pred[0] if parsed_pred else str(pred_final)
+                ref_expr = parsed_ref[0] if parsed_ref else str(ref_final)
                 
                 # Use Math-Verify's verify() function for comparison
                 if verify(ref_expr, pred_expr):  # Note: gold first, pred second as per docs
                     correct += 1
                     
             except Exception:
-                # Simple string fallback
-                if str(pred).strip().lower() == str(ref).strip().lower():
+                # Simple string fallback with proper normalization
+                pred_normalized = normalize_for_comparison(pred)
+                ref_normalized = normalize_for_comparison(ref)
+                if pred_normalized.lower() == ref_normalized.lower():
                     correct += 1
         
         return correct / len(predictions) if predictions else 0
     
     except ImportError:
-        # Basic exact match fallback
+        # Basic exact match fallback with proper normalization
         correct = 0
         for pred, ref in zip(predictions, references):
-            if str(pred).strip().lower() == str(ref).strip().lower():
+            pred_normalized = normalize_for_comparison(pred)
+            ref_normalized = normalize_for_comparison(ref)
+            if pred_normalized.lower() == ref_normalized.lower():
                 correct += 1
         return correct / len(predictions) if predictions else 0
 
