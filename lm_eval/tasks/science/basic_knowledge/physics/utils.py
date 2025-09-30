@@ -102,42 +102,22 @@ def extract_math_answers(resps, docs):
         
         return None
     
-    try:
-        from math_verify import parse
-        
-        filtered_resps = []
-        for resp_list in resps:
-            filtered = []
-            for resp in resp_list:
-                # Extract answer from Final Answer: \boxed{} format
-                extracted_answer = extract_boxed_answer(resp)
+    filtered_resps = []
+    for resp_list in resps:
+        filtered = []
+        for resp in resp_list:
+            # Extract answer from Final Answer: \boxed{} format
+            extracted_answer = extract_boxed_answer(resp)
+            
+            if extracted_answer and not is_placeholder(extracted_answer):
+                # Successfully extracted from boxed format
+                filtered.append(extracted_answer)
+            else:
+                # If no "Final Answer:" format found, return empty string
+                filtered.append("")
                 
-                if extracted_answer and not is_placeholder(extracted_answer):
-                    # Successfully extracted from boxed format
-                    filtered.append(extracted_answer)
-                else:
-                    # If no "Final Answer:" format found, return empty string
-                    filtered.append("")
-                    
-            filtered_resps.append(filtered)
-        return filtered_resps
-    
-    except ImportError:
-        # Fallback when Math-Verify is not available
-        filtered_resps = []
-        for resp_list in resps:
-            filtered = []
-            for resp in resp_list:
-                # Extract from boxed format even without Math-Verify
-                extracted_answer = extract_boxed_answer(resp)
-                if extracted_answer and not is_placeholder(extracted_answer):
-                    filtered.append(extracted_answer)
-                else:
-                    # Simple fallback to last non-empty line
-                    lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
-                    filtered.append(lines[-1] if lines else resp.strip())
-            filtered_resps.append(filtered)
-        return filtered_resps
+        filtered_resps.append(filtered)
+    return filtered_resps
 
 def math_verify_score(predictions, references):
     """Direct Math-Verify verification using native parse() + verify()"""
@@ -164,44 +144,39 @@ def math_verify_score(predictions, references):
     
     try:
         from math_verify import parse, verify
-        
-        correct = 0
-        for pred, ref in zip(predictions, references):
-            try:
-                # Extract final values from nested structures
-                pred_final = extract_final_value(pred)
-                ref_final = extract_final_value(ref)
-                
-                # Parse both prediction and reference using Math-Verify
-                parsed_pred = parse(str(pred_final))
-                parsed_ref = parse(str(ref_final))
-                
-                # Use parsed expressions if available, otherwise use strings
-                pred_expr = parsed_pred[0] if parsed_pred else str(pred_final)
-                ref_expr = parsed_ref[0] if parsed_ref else str(ref_final)
-                
-                # Use Math-Verify's verify() function for comparison
-                if verify(ref_expr, pred_expr):  # Note: gold first, pred second as per docs
-                    correct += 1
-                    
-            except Exception:
-                # Simple string fallback with proper normalization
-                pred_normalized = normalize_for_comparison(pred)
-                ref_normalized = normalize_for_comparison(ref)
-                if pred_normalized.lower() == ref_normalized.lower():
-                    correct += 1
-        
-        return correct / len(predictions) if predictions else 0
-    
     except ImportError:
-        # Basic exact match fallback with proper normalization
-        correct = 0
-        for pred, ref in zip(predictions, references):
+        raise ImportError(
+            "`math_verify` package is required for physics exact match tasks. "
+            "Please install it via: pip install math-verify"
+        )
+    
+    correct = 0
+    for pred, ref in zip(predictions, references):
+        try:
+            # Extract final values from nested structures
+            pred_final = extract_final_value(pred)
+            ref_final = extract_final_value(ref)
+            
+            # Parse both prediction and reference using Math-Verify
+            parsed_pred = parse(str(pred_final))
+            parsed_ref = parse(str(ref_final))
+            
+            # Use parsed expressions if available, otherwise use strings
+            pred_expr = parsed_pred[0] if parsed_pred else str(pred_final)
+            ref_expr = parsed_ref[0] if parsed_ref else str(ref_final)
+            
+            # Use Math-Verify's verify() function for comparison
+            if verify(ref_expr, pred_expr):  # Note: gold first, pred second as per docs
+                correct += 1
+                
+        except Exception:
+            # Simple string fallback with proper normalization
             pred_normalized = normalize_for_comparison(pred)
             ref_normalized = normalize_for_comparison(ref)
             if pred_normalized.lower() == ref_normalized.lower():
                 correct += 1
-        return correct / len(predictions) if predictions else 0
+    
+    return correct / len(predictions) if predictions else 0
 
 def clean_dataset_answer(answer_text):
     """Clean dataset answer text for better Math-Verify compatibility"""
