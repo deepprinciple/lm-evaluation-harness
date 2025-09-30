@@ -10,7 +10,7 @@ doc_to_text: >
   Question: {{Question.strip()}}
   
   Provide your reasoning first, then conclude with your final answer. 
-  IMPORTANT: You MUST put your final mathematical answer inside <Math> tags like this: <Math>your mathematical expression</Math>
+  IMPORTANT: You MUST put your final mathematical answer in this exact format: Final Answer: \boxed{your mathematical expression}
   Do not use any other format for your final answer.
   
   Answer:
