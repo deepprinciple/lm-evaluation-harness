@@ -23,195 +23,175 @@ process_core_knowledge = partial(process_docs, task="Core Knowledge")  # ✅ Ava
 process_high_energy_physics = partial(process_docs, task="High-energy Physics")  # ✅ Available in multiple_choice
 
 def extract_math_answers(resps, docs):
-    """Direct Math-Verify answer extraction using native parse() with preprocessing"""
+    """Extract answers from Final Answer: \\boxed{} format using Math-Verify"""
     
-    # Minimal placeholder filtering
+    # Simplified placeholder filtering for boxed format
     def is_placeholder(text):
-        """Basic placeholder check"""
+        """Check for placeholder content in boxed answers"""
         if not text:
             return True
         text_lower = str(text).lower().strip()
-        placeholders = {'your mathematical expression', 'your answer', '...'}
-        return any(placeholder in text_lower for placeholder in placeholders)
+        
+        # Key placeholder patterns for boxed format
+        placeholders = {
+            'your_answer', 
+            'your answer', 
+            '...', 
+            'computed value',
+            'your result'
+        }
+        
+        # Check for placeholder patterns
+        if any(placeholder in text_lower for placeholder in placeholders):
+            return True
+            
+        # Check for very short responses
+        if len(text.strip()) < 1:
+            return True
+            
+        return False
     
-    def preprocess_for_math_verify(text):
-        """Preprocess text to help Math-Verify's parse() function"""
+    def extract_boxed_answer(text):
+        """Extract answer from Final Answer: \\boxed{} format"""
         import re
         
-        # Extract content from <Math>...</Math> tags first
-        math_match = re.search(r'<Math>([^<]+)</Math>', text, re.IGNORECASE | re.DOTALL)
-        if math_match:
-            return math_match.group(1).strip()
-            
-        # Extract content from <Math>...<\Math> tags (dataset format error)
-        math_match = re.search(r'<Math>([^<]+)<\\?/?Math>', text, re.IGNORECASE | re.DOTALL)
-        if math_match:
-            return math_match.group(1).strip()
+        # Clean up text - remove form feed characters and other issues
+        text = text.replace('\x0c', '\\f')  # Replace form feed with \f
+        text = text.replace('\x0crac', '\\frac')  # Fix common \frac issue
         
-        # If no Math tags found, try to extract the mathematical expression from the last part
-        lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
-        if lines:
-            # Look at the last few lines for the final answer
-            last_lines = lines[-3:] if len(lines) >= 3 else lines
-            
-            for line in reversed(last_lines):  # Start from the last line
-                # Look for patterns like "c ∼ expression" or "answer = expression"
-                math_expr_patterns = [
-                    r'.*[∼~=]\s*(.+)$',  # c ∼ d^NC or answer = expression
-                    r'.*:\s*(.+)$',      # Therefore: expression
-                    r'^\s*\\?\[\s*(.+)\s*\\?\]$',  # \\[expression\\]
-                    r'^\s*\$\$(.+)\$\$\s*$',       # $$expression$$
-                ]
-                
-                for pattern in math_expr_patterns:
-                    match = re.search(pattern, line)
-                    if match:
-                        extracted = match.group(1).strip()
-                        if extracted and len(extracted) > 1 and 'd' in extracted:  # Likely final answer with 'd'
-                            return extracted
-            
-            # If no specific pattern found, try last line with mathematical symbols
-            for line in reversed(last_lines):
-                if any(symbol in line for symbol in ['d^', '^', '∼', '~', '=']):
-                    # Try to extract the expression part after common words
-                    expr_after_patterns = [
-                        r'.*(?:answer|final|result|thus|therefore|hence)[^:]*:\s*(.+)$',
-                        r'.*[∼~=]\s*(.+)$',
-                        r'^(.+)$'  # Last resort
-                    ]
-                    
-                    for pattern in expr_after_patterns:
-                        match = re.search(pattern, line, re.IGNORECASE)
-                        if match:
-                            extracted = match.group(1).strip()
-                            if extracted and len(extracted) > 1:
-                                return extracted
-            
-            # Final fallback: return the last line
-            return lines[-1]
-        
-        # Look for mathematical expressions in LaTeX format (fallback)
-        latex_patterns = [
-            r'\\?\[[^\]]+\\?\]',  # [expression]
-            r'\$\$[^$]+\$\$',     # $$expression$$
-            r'\$[^$]+\$',         # $expression$
+        # Extract complete \boxed{...} format - handle various LaTeX formats
+        patterns = [
+            r'Final Answer:\s*\\boxed\{',  # Direct \boxed
+            r'Final Answer:\s*\\\\boxed\{',  # Double backslash
+            r'Final Answer:\s*\\\([^)]*\\boxed\{',  # LaTeX format with \(...\boxed{
+            r'\\text\{Final Answer:\s*\}\s*\\boxed\{',  # \text{Final Answer: } \boxed{
+            r'Final Answer:\s*\n\s*\\\\?\[\s*.*?\\boxed\{',  # Final Answer: followed by equation block
         ]
         
-        # Find all matches and take the last one
-        all_matches = []
-        for pattern in latex_patterns:
-            matches = re.findall(pattern, text)
-            all_matches.extend(matches)
+        match = None
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            if match:
+                break
         
-        if all_matches:
-            return all_matches[-1].strip()
+        if not match:
+            # Fallback: look for "Final Answer:" followed by math expression without \boxed{}
+            fallback_pattern = r'Final Answer:\s*\n?\s*\\?\[\s*(.*?)\s*\\?\]'
+            fallback_match = re.search(fallback_pattern, text, re.IGNORECASE | re.DOTALL)
+            if fallback_match:
+                # Extract the math content between \[ and \]
+                content = fallback_match.group(1).strip()
+                return content if content else None
+            return None
         
-        # Return original text for Math-Verify to handle other formats
-        return text
+        # Find the matching closing brace
+        start_pos = match.end() - 1  # Position of opening brace
+        brace_count = 0
+        i = start_pos
+        
+        while i < len(text):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    # Extract content inside \boxed{...}
+                    content = text[start_pos + 1:i].strip()
+                    return content if content else None
+            i += 1
+        
+        return None
     
-    try:
-        from math_verify import parse
-        
-        filtered_resps = []
-        for resp_list in resps:
-            filtered = []
-            for resp in resp_list:
-                try:
-                    # Preprocess the response to help Math-Verify
-                    preprocessed = preprocess_for_math_verify(resp)
-                    
-                    # Use Math-Verify's parse() function to extract expressions
-                    parsed_results = parse(preprocessed)
-                    
-                    if parsed_results:
-                        # Take the first successfully parsed expression (SymPy object)
-                        extracted = str(parsed_results[0])
-                        if not is_placeholder(extracted):
-                            filtered.append(extracted)
-                        else:
-                            # Try the string version if available
-                            if len(parsed_results) > 1:
-                                extracted = parsed_results[1]
-                                if not is_placeholder(extracted):
-                                    filtered.append(extracted)
-                                else:
-                                    # Use preprocessed result
-                                    if not is_placeholder(preprocessed):
-                                        filtered.append(preprocessed)
-                                    else:
-                                        # Simple fallback: last non-empty line
-                                        lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
-                                        filtered.append(lines[-1] if lines else resp.strip())
-                            else:
-                                # Use preprocessed result
-                                if not is_placeholder(preprocessed):
-                                    filtered.append(preprocessed)
-                                else:
-                                    # Simple fallback: last non-empty line
-                                    lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
-                                    filtered.append(lines[-1] if lines else resp.strip())
-                    else:
-                        # Math-Verify parse failed, use preprocessed result
-                        if not is_placeholder(preprocessed):
-                            filtered.append(preprocessed)
-                        else:
-                            # Simple fallback: last non-empty line
-                            lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
-                            filtered.append(lines[-1] if lines else resp.strip())
-                except Exception:
-                    # Basic fallback with preprocessing
-                    preprocessed = preprocess_for_math_verify(resp)
-                    if not is_placeholder(preprocessed):
-                        filtered.append(preprocessed)
-                    else:
-                        lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
-                        filtered.append(lines[-1] if lines else resp.strip())
-                    
-            filtered_resps.append(filtered)
-        return filtered_resps
-    
-    except ImportError:
-        # Simple fallback when Math-Verify is not available
-        filtered_resps = []
-        for resp_list in resps:
-            filtered = []
-            for resp in resp_list:
-                lines = [line.strip() for line in resp.strip().split('\n') if line.strip()]
-                filtered.append(lines[-1] if lines else resp.strip())
-            filtered_resps.append(filtered)
-        return filtered_resps
+    filtered_resps = []
+    for resp_list in resps:
+        filtered = []
+        for resp in resp_list:
+            # Extract answer from Final Answer: \boxed{} format
+            extracted_answer = extract_boxed_answer(resp)
+            
+            if extracted_answer and not is_placeholder(extracted_answer):
+                # Successfully extracted from boxed format
+                filtered.append(extracted_answer)
+            else:
+                # If no "Final Answer:" format found, return empty string
+                filtered.append("")
+                
+        filtered_resps.append(filtered)
+    return filtered_resps
 
 def math_verify_score(predictions, references):
     """Direct Math-Verify verification using native parse() + verify()"""
+    
+    def extract_final_value(value):
+        """Recursively extract the final non-list value from nested lists"""
+        while isinstance(value, list) and len(value) > 0:
+            value = value[0]
+        return value
+    
+    def normalize_for_comparison(value):
+        """Normalize value for string comparison"""
+        final_value = extract_final_value(value)
+        if isinstance(final_value, str) and final_value.startswith('[') and final_value.endswith(']'):
+            # Handle stringified list
+            inner = final_value[1:-1].strip()
+            if inner.startswith("'") and inner.endswith("'"):
+                final_value = inner[1:-1]
+            elif inner.startswith('"') and inner.endswith('"'):
+                final_value = inner[1:-1]
+            else:
+                final_value = inner
+        return str(final_value).strip()
+    
     try:
         from math_verify import parse, verify
-        
-        correct = 0
-        for pred, ref in zip(predictions, references):
-            try:
-                # Parse both prediction and reference using Math-Verify
-                parsed_pred = parse(str(pred))
-                parsed_ref = parse(str(ref))
-                
-                # Use parsed expressions if available, otherwise use strings
-                pred_expr = parsed_pred[0] if parsed_pred else str(pred)
-                ref_expr = parsed_ref[0] if parsed_ref else str(ref)
-                
-                # Use Math-Verify's verify() function for comparison
-                if verify(ref_expr, pred_expr):  # Note: gold first, pred second as per docs
-                    correct += 1
-                    
-            except Exception:
-                # Simple string fallback
-                if str(pred).strip().lower() == str(ref).strip().lower():
-                    correct += 1
-        
-        return correct / len(predictions) if predictions else 0
-    
     except ImportError:
-        # Basic exact match fallback
-        correct = 0
-        for pred, ref in zip(predictions, references):
-            if str(pred).strip().lower() == str(ref).strip().lower():
+        raise ImportError(
+            "`math_verify` package is required for physics exact match tasks. "
+            "Please install it via: pip install math-verify"
+        )
+    
+    correct = 0
+    for pred, ref in zip(predictions, references):
+        try:
+            # Extract final values from nested structures
+            pred_final = extract_final_value(pred)
+            ref_final = extract_final_value(ref)
+            
+            # Parse both prediction and reference using Math-Verify
+            parsed_pred = parse(str(pred_final))
+            parsed_ref = parse(str(ref_final))
+            
+            # Use parsed expressions if available, otherwise use strings
+            pred_expr = parsed_pred[0] if parsed_pred else str(pred_final)
+            ref_expr = parsed_ref[0] if parsed_ref else str(ref_final)
+            
+            # Use Math-Verify's verify() function for comparison
+            if verify(ref_expr, pred_expr):  # Note: gold first, pred second as per docs
                 correct += 1
-        return correct / len(predictions) if predictions else 0
+                
+        except Exception:
+            # Simple string fallback with proper normalization
+            pred_normalized = normalize_for_comparison(pred)
+            ref_normalized = normalize_for_comparison(ref)
+            if pred_normalized.lower() == ref_normalized.lower():
+                correct += 1
+    
+    return correct / len(predictions) if predictions else 0
+
+def clean_dataset_answer(answer_text):
+    """Clean dataset answer text for better Math-Verify compatibility"""
+    if not answer_text:
+        return answer_text
+    
+    # Remove common LaTeX formatting that might cause parsing issues
+    cleaned = str(answer_text).strip()
+    
+    # Handle common LaTeX patterns in dataset answers
+    # Replace \\ with \ for better parsing
+    cleaned = cleaned.replace('\\\\', '\\')
+    
+    # Handle special LaTeX commands
+    cleaned = cleaned.replace('\\mathbb{Z}', 'Z')  # Simplify integer set notation
+    cleaned = cleaned.replace('\\times', '*')      # Replace times with multiplication
+    
+    return cleaned
