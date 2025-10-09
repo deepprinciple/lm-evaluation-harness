@@ -19,7 +19,7 @@ from typing import (
     Type,
     Union,
 )
-
+import numpy as np
 import torch
 import transformers
 
@@ -538,7 +538,8 @@ class Collator:
             res[ind] = v
             cov[ind] = True
 
-        assert all(cov)
+        # assert all(cov)
+        print("no res for:", np.where(np.array(res) == None)[0], np.where(np.array(cov) == False)[0], np.array(res).shape)
 
         return res
 

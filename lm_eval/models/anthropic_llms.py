@@ -136,7 +136,7 @@ please install anthropic via `pip install 'lm-eval[anthropic]'` or `pip install 
             messages=[{"role": "user", "content": f"{prompt}"}],
             **kwargs,
         )
-        return response.content[0].text
+        return response.content[-1].text
 
     return messages()
 
@@ -347,9 +347,14 @@ class AnthropicChat(LocalCompletionsAPI):
         out = {
             "messages": cleaned_messages,
             "model": self.model,
-            "max_tokens": 25000,
-            "temperature": temperature,
+            "max_tokens": 32000,
+            # "temperature": temperature,
+            "temperature": 1,
             "stop_sequences": stop,
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 25000
+            },
             **gen_kwargs,
         }
         eval_logger.info(f"max_tokens: {out['max_tokens']}")
@@ -366,7 +371,10 @@ class AnthropicChat(LocalCompletionsAPI):
             outputs = [outputs]
         for out in outputs:
             for choices in out["content"]:
-                res.append(choices["text"])
+                try:
+                    res.append(choices["text"])
+                except:
+                    pass
         return res
 
     def tok_encode(

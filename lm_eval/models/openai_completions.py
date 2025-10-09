@@ -288,13 +288,19 @@ class OpenAIChatCompletion(LocalChatCompletion):
             "seed": seed,
             **gen_kwargs,
         }
-        if "o1" in self.model or "gpt-5" in self.model:
+        output["max_completion_tokens"] = 16000
+        if ("o1" in self.model or "gpt-5" in self.model) and "gpt-5-chat-latest" not in self.model:
             output.pop("stop")
             output["temperature"] = 1
         elif "o3" in self.model:
             output.pop("temperature")
             output.pop("stop")
-            output.pop("max_completion_tokens")
+            # output.pop("max_completion_tokens")
+            output["reasoning_effort"] = "high"
+            output["max_completion_tokens"] = 60000
+        if "gpt-5" in self.model and "gpt-5-chat-latest" not in self.model:
+            output["reasoning_effort"] = "high"
+            output["max_completion_tokens"] = 32000
         return output
 
 
@@ -594,5 +600,6 @@ class XAIChatCompletion(OpenAIChatCompletion):
         # Only add max_tokens if explicitly set by user
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        payload["max_tokens"] = 24000
             
         return payload

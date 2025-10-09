@@ -21,6 +21,10 @@ MODEL_CONFIGS = {
         "model": "openai-chat-completions",
         "model_args": "model=o3"
     },
+    "gpt-5": {
+        "model": "openai-chat-completions",
+        "model_args": "model=gpt-5"
+    },
     "claude-opus-4-1": {
         "model": "anthropic-chat-completions", 
         "model_args": "model=claude-opus-4-1-20250805"
@@ -29,9 +33,21 @@ MODEL_CONFIGS = {
         "model": "xai-chat-completions",
         "model_args": "model=grok-4"
     },
+    "grok-3-mini": {
+        "model": "xai-chat-completions",
+        "model_args": "model=grok-3-mini"
+    },
+    "grok-3": {
+        "model": "xai-chat-completions",
+        "model_args": "model=grok-3"
+    },
     "gemini-2.5-flash": {
         "model": "gemini-chat-completions",
         "model_args": "model=gemini-2.5-flash"
+    },
+    "gemini-2.5-pro": {
+        "model": "gemini-chat-completions",
+        "model_args": "model=gemini-2.5-pro"
     },
     "deepseek-chat": {
         "model": "deepseek-chat-completions",
@@ -40,7 +56,11 @@ MODEL_CONFIGS = {
     "deepseek-reasoner": {
         "model": "deepseek-chat-completions",
         "model_args": "model=deepseek-reasoner"
-    }
+    },
+    "claude-4-5-sonnet": {
+        "model": "anthropic-chat-completions",
+        "model_args": "model=claude-sonnet-4-5-20250929"
+    },
 }
 
 # 数据集配置
@@ -103,7 +123,7 @@ class TaskManager:
             "--apply_chat_template",
             "--output", dataset_config["output_dir"],
             "--log_samples",
-            "--limit", "1"  # 快速尝试版本：只评估1个样本
+            "--limit", "1",  # 快速尝试版本：只评估1个样本
         ]
         
         return command

@@ -6,6 +6,13 @@
 set -e  # 遇到错误时退出
 
 # 设置API密钥
+# 请在环境变量中设置以下API密钥，或在此处取消注释并填入您的密钥
+# export OPENAI_API_KEY=your_openai_api_key_here
+# export ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# export DEEPSEEK_API_KEY=your_deepseek_api_key_here
+# export XAI_API_KEY=your_xai_api_key_here
+# export GEMINI_API_KEY=your_gemini_api_key_here
+# export QWEN_API_KEY=your_qwen_api_key_here
 
 # 脚本目录
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"

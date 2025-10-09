@@ -21,17 +21,33 @@ MODEL_CONFIGS = {
         "model": "openai-chat-completions",
         "model_args": "model=o3"
     },
+    "gpt-5": {
+        "model": "openai-chat-completions",
+        "model_args": "model=gpt-5"
+    },
+    "gpt-5-chat-latest": {
+        "model": "openai-chat-completions",
+        "model_args": "model=gpt-5-chat-latest"
+    },
     "claude-opus-4-1": {
         "model": "anthropic-chat-completions", 
         "model_args": "model=claude-opus-4-1-20250805"
     },
-    # "grok-4": {
-    #     "model": "xai-chat-completions",
-    #     "model_args": "model=grok-4"
-    # },
+    "grok-3": {
+        "model": "xai-chat-completions",
+        "model_args": "model=grok-3"
+    },
+    "grok-4": {
+        "model": "xai-chat-completions",
+        "model_args": "model=grok-4"
+    },
     "gemini-2.5-flash": {
         "model": "gemini-chat-completions",
         "model_args": "model=gemini-2.5-flash"
+    },
+    "gemini-2.5-pro": {
+        "model": "gemini-chat-completions",
+        "model_args": "model=gemini-2.5-pro"
     },
     "deepseek-chat": {
         "model": "deepseek-chat-completions",
@@ -40,6 +56,18 @@ MODEL_CONFIGS = {
     "deepseek-reasoner": {
         "model": "deepseek-chat-completions",
         "model_args": "model=deepseek-reasoner"
+    },
+    "claude-4-5-sonnet": {
+        "model": "anthropic-chat-completions",
+        "model_args": "model=claude-sonnet-4-5-20250929"
+    },
+    "claude-4-sonnet": {
+        "model": "anthropic-chat-completions",
+        "model_args": "model=claude-sonnet-4-20250514"
+    },
+     "claude-4-1-opus": {
+        "model": "anthropic-chat-completions",
+        "model_args": "model=claude-opus-4-1-20250805"
     }
 }
 
