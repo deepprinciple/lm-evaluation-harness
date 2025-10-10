@@ -538,8 +538,8 @@ class Collator:
             res[ind] = v
             cov[ind] = True
 
-        # assert all(cov)
-        print("no res for:", np.where(np.array(res) == None)[0], np.where(np.array(cov) == False)[0], np.array(res).shape)
+        assert all(cov)
+        # print("no res for:", np.where(np.array(res) == None)[0], np.where(np.array(cov) == False)[0], np.array(res).shape)  # uncomment if keeps getting assertion error due to api errors
 
         return res
 
