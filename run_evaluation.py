@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-模型评估任务管理器
-支持并发执行多个评估任务，每个任务独立的错误处理和日志记录
+Model Evaluation Task Manager
+Supports concurrent execution of multiple evaluation tasks with independent error handling and logging
 """
 
 import argparse
@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple
 import threading
 
-# 模型配置
+# Model configurations
 MODEL_CONFIGS = {
     "gpt-o3": {
         "model": "openai-chat-completions",
@@ -43,7 +43,7 @@ MODEL_CONFIGS = {
     }
 }
 
-# 数据集配置
+# Dataset configurations
 DATASET_CONFIGS = {
     "chemistry": {
         "task": "science_chemistry",
@@ -65,14 +65,14 @@ class TaskManager:
         self.log_dir = log_dir
         self.lock = threading.Lock()
         
-        # 创建日志目录
+        # Create log directory
         os.makedirs(log_dir, exist_ok=True)
-        
-        # 创建主日志文件
+
+        # Create main log file
         self.main_log_path = os.path.join(log_dir, f"main_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
         
     def log_message(self, message: str, also_print: bool = True):
-        """记录日志消息到主日志文件"""
+        """Log message to main log file"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         log_entry = f"[{timestamp}] {message}\n"
         
@@ -84,12 +84,12 @@ class TaskManager:
                 print(message)
     
     def build_command(self, model_name: str, dataset_name: str) -> List[str]:
-        """构建lm_eval命令"""
+        """Build lm_eval command"""
         if model_name not in MODEL_CONFIGS:
-            raise ValueError(f"不支持的模型: {model_name}. 支持的模型: {list(MODEL_CONFIGS.keys())}")
-        
+            raise ValueError(f"Unsupported model: {model_name}. Supported models: {list(MODEL_CONFIGS.keys())}")
+
         if dataset_name not in DATASET_CONFIGS:
-            raise ValueError(f"不支持的数据集: {dataset_name}. 支持的数据集: {list(DATASET_CONFIGS.keys())}")
+            raise ValueError(f"Unsupported dataset: {dataset_name}. Supported datasets: {list(DATASET_CONFIGS.keys())}")
         
         model_config = MODEL_CONFIGS[model_name]
         dataset_config = DATASET_CONFIGS[dataset_name]
@@ -109,27 +109,27 @@ class TaskManager:
         return command
     
     def run_single_task(self, model_name: str, dataset_name: str) -> Dict:
-        """执行单个评估任务"""
+        """Execute a single evaluation task"""
         task_id = f"{model_name}_{dataset_name}"
         start_time = datetime.now()
-        
-        # 为每个任务创建独立的日志文件
+
+        # Create independent log file for each task
         task_log_path = os.path.join(self.log_dir, f"task_{task_id}_{start_time.strftime('%Y%m%d_%H%M%S')}.txt")
-        
-        self.log_message(f"开始执行任务: {task_id}")
+
+        self.log_message(f"Starting task: {task_id}")
         
         try:
-            # 构建命令
+            # Build command
             command = self.build_command(model_name, dataset_name)
             command_str = " ".join(command)
-            
-            self.log_message(f"任务 {task_id} 执行命令: {command_str}")
-            
-            # 执行命令并捕获输出
+
+            self.log_message(f"Task {task_id} executing command: {command_str}")
+
+            # Execute command and capture output
             with open(task_log_path, 'w', encoding='utf-8') as log_file:
-                log_file.write(f"任务: {task_id}\n")
-                log_file.write(f"开始时间: {start_time}\n")
-                log_file.write(f"命令: {command_str}\n")
+                log_file.write(f"Task: {task_id}\n")
+                log_file.write(f"Start time: {start_time}\n")
+                log_file.write(f"Command: {command_str}\n")
                 log_file.write("=" * 80 + "\n\n")
                 log_file.flush()
                 
@@ -140,8 +140,8 @@ class TaskManager:
                     universal_newlines=True,
                     bufsize=1
                 )
-                
-                # 实时写入日志
+
+                # Write logs in real-time
                 for line in process.stdout:
                     log_file.write(line)
                     log_file.flush()
@@ -152,11 +152,11 @@ class TaskManager:
             duration = (end_time - start_time).total_seconds()
             
             if return_code == 0:
-                self.log_message(f"任务 {task_id} 成功完成 (耗时: {duration:.2f}秒)")
-                status = "成功"
+                self.log_message(f"Task {task_id} completed successfully (Duration: {duration:.2f}s)")
+                status = "success"
             else:
-                self.log_message(f"任务 {task_id} 执行失败，退出码: {return_code} (耗时: {duration:.2f}秒)")
-                status = "失败"
+                self.log_message(f"Task {task_id} failed with exit code: {return_code} (Duration: {duration:.2f}s)")
+                status = "failed"
             
             return {
                 "task_id": task_id,
@@ -174,18 +174,18 @@ class TaskManager:
         except Exception as e:
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
-            error_msg = f"任务 {task_id} 发生异常: {str(e)} (耗时: {duration:.2f}秒)"
+            error_msg = f"Task {task_id} encountered exception: {str(e)} (Duration: {duration:.2f}s)"
             self.log_message(error_msg)
-            
-            # 将错误信息也写入任务日志
+
+            # Write error information to task log
             with open(task_log_path, 'a', encoding='utf-8') as log_file:
-                log_file.write(f"\n\n错误信息: {str(e)}\n")
+                log_file.write(f"\n\nError message: {str(e)}\n")
             
             return {
                 "task_id": task_id,
                 "model": model_name,
                 "dataset": dataset_name,
-                "status": "异常",
+                "status": "exception",
                 "error": str(e),
                 "start_time": start_time.isoformat(),
                 "end_time": end_time.isoformat(),
@@ -195,31 +195,31 @@ class TaskManager:
             }
     
     def run_tasks(self, tasks: List[Tuple[str, str]]) -> List[Dict]:
-        """并发执行多个任务"""
-        self.log_message(f"开始执行 {len(tasks)} 个任务，最大并发数: {self.max_workers}")
+        """Execute multiple tasks concurrently"""
+        self.log_message(f"Starting {len(tasks)} tasks with max concurrency: {self.max_workers}")
         
         results = []
         
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有任务
+            # Submit all tasks
             future_to_task = {
                 executor.submit(self.run_single_task, model, dataset): (model, dataset)
                 for model, dataset in tasks
             }
-            
-            # 收集结果
+
+            # Collect results
             for future in as_completed(future_to_task):
                 model, dataset = future_to_task[future]
                 try:
                     result = future.result()
                     results.append(result)
                 except Exception as e:
-                    self.log_message(f"任务 {model}_{dataset} 意外失败: {str(e)}")
+                    self.log_message(f"Task {model}_{dataset} unexpectedly failed: {str(e)}")
                     results.append({
                         "task_id": f"{model}_{dataset}",
                         "model": model,
                         "dataset": dataset,
-                        "status": "意外失败",
+                        "status": "unexpected_failure",
                         "error": str(e),
                         "log_file": "N/A"
                     })
@@ -227,68 +227,68 @@ class TaskManager:
         return results
     
     def save_summary(self, results: List[Dict]):
-        """保存任务执行总结"""
+        """Save task execution summary"""
         summary_path = os.path.join(self.log_dir, f"summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-        
+
         summary = {
-            "总任务数": len(results),
-            "成功任务数": len([r for r in results if r["status"] == "成功"]),
-            "失败任务数": len([r for r in results if r["status"] in ["失败", "异常", "意外失败"]]),
-            "执行时间": datetime.now().isoformat(),
-            "详细结果": results
+            "total_tasks": len(results),
+            "successful_tasks": len([r for r in results if r["status"] == "success"]),
+            "failed_tasks": len([r for r in results if r["status"] in ["failed", "exception", "unexpected_failure"]]),
+            "execution_time": datetime.now().isoformat(),
+            "detailed_results": results
         }
         
         with open(summary_path, 'w', encoding='utf-8') as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)
-        
-        self.log_message(f"任务执行总结已保存到: {summary_path}")
+
+        self.log_message(f"Task execution summary saved to: {summary_path}")
         return summary_path
 
 def main():
-    parser = argparse.ArgumentParser(description="模型评估任务管理器")
+    parser = argparse.ArgumentParser(description="Model Evaluation Task Manager")
     parser.add_argument("--models", nargs="+", required=True,
                        choices=list(MODEL_CONFIGS.keys()),
-                       help="要评估的模型列表")
+                       help="List of models to evaluate")
     parser.add_argument("--datasets", nargs="+", required=True,
                        choices=list(DATASET_CONFIGS.keys()),
-                       help="要使用的数据集列表")
+                       help="List of datasets to use")
     parser.add_argument("--max-workers", type=int, default=2,
-                       help="最大并发任务数 (默认: 2)")
+                       help="Maximum number of concurrent tasks (default: 2)")
     parser.add_argument("--log-dir", default="logs",
-                       help="日志文件保存目录 (默认: logs)")
+                       help="Log file directory (default: logs)")
     
     args = parser.parse_args()
-    
-    # 创建任务管理器
+
+    # Create task manager
     task_manager = TaskManager(max_workers=args.max_workers, log_dir=args.log_dir)
-    
-    # 生成任务列表（模型和数据集的笛卡尔积）
+
+    # Generate task list (Cartesian product of models and datasets)
     tasks = [(model, dataset) for model in args.models for dataset in args.datasets]
-    
-    task_manager.log_message(f"准备执行的任务组合:")
+
+    task_manager.log_message(f"Task combinations to execute:")
     for model, dataset in tasks:
         task_manager.log_message(f"  - {model} x {dataset}")
-    
-    # 执行任务
+
+    # Execute tasks
     results = task_manager.run_tasks(tasks)
-    
-    # 保存总结
+
+    # Save summary
     summary_path = task_manager.save_summary(results)
-    
-    # 打印最终统计
-    successful = [r for r in results if r["status"] == "成功"]
-    failed = [r for r in results if r["status"] in ["失败", "异常", "意外失败"]]
-    
+
+    # Print final statistics
+    successful = [r for r in results if r["status"] == "success"]
+    failed = [r for r in results if r["status"] in ["failed", "exception", "unexpected_failure"]]
+
     print(f"\n{'='*60}")
-    print(f"任务执行完成!")
-    print(f"总任务数: {len(results)}")
-    print(f"成功: {len(successful)}")
-    print(f"失败: {len(failed)}")
-    print(f"主日志文件: {task_manager.main_log_path}")
-    print(f"执行总结: {summary_path}")
+    print(f"Task execution completed!")
+    print(f"Total tasks: {len(results)}")
+    print(f"Successful: {len(successful)}")
+    print(f"Failed: {len(failed)}")
+    print(f"Main log file: {task_manager.main_log_path}")
+    print(f"Execution summary: {summary_path}")
     print(f"{'='*60}")
-    
-    # 如果有失败的任务，以非零状态退出
+
+    # Exit with non-zero status if there are failed tasks
     if failed:
         sys.exit(1)
 
