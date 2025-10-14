@@ -14,7 +14,6 @@ output_type: generate_until
 num_fewshot: 0
 
 generation_kwargs:
-  max_tokens: 5
   temperature: 0.0
   do_sample: false
   until:

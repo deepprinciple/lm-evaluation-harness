@@ -19,7 +19,7 @@ from typing import (
     Type,
     Union,
 )
-
+import numpy as np
 import torch
 import transformers
 
@@ -539,6 +539,7 @@ class Collator:
             cov[ind] = True
 
         assert all(cov)
+        # print("no res for:", np.where(np.array(res) == None)[0], np.where(np.array(cov) == False)[0], np.array(res).shape)  # uncomment if keeps getting assertion error due to api errors
 
         return res
 

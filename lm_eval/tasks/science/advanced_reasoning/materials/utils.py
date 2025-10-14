@@ -4,7 +4,6 @@ from collections import defaultdict
 import logging
 import rdkit
 from rdkit import Chem
-from lm_eval.utils import eval_logger
 
 def process_mof_water_stability(dataset):
     # Rename columns to match doc_to_text variables
@@ -74,8 +73,6 @@ def process_pxrd_lattice_prediction(results, doc):
     # 使用正则表达式提取三个浮点数
     import re
     pattern = r"(-?\d+\.?\d*),\s*(-?\d+\.?\d*),\s*(-?\d+\.?\d*)"
-    eval_logger.info(results)
-    eval_logger.info(doc)
     match_results = re.search(pattern, results.get("target", ""))
     match_doc = re.search(pattern, doc[0][0])
     if not match_doc:

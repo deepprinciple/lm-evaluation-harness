@@ -37,7 +37,6 @@ doc_to_target: target
 output_type: generate_until
 
 generation_kwargs:
-  max_tokens: 25000
   do_sample: false
   temperature: 0.0
   until:

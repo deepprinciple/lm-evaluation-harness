@@ -28,7 +28,6 @@ filter_list:
         fallback: "[invalid]"
 
 generation_kwargs:
-  max_tokens: 10
   until:
     - "</s>"
     - "<|im_end|>"
