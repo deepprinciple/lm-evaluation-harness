@@ -120,6 +120,8 @@ class TemplateAPI(TemplateLM):
         # number of concurrent requests. More useful if not batching
         num_concurrent: int = 1,
         max_retries: int = 3,
+        # re-request when the API returns 200 with empty content
+        retry_on_empty: bool = True,
         max_gen_toks: int = 256,
         batch_size: Union[str, int] = 1,
         seed: int = 1234,
@@ -179,6 +181,7 @@ class TemplateAPI(TemplateLM):
         self.custom_prefix_token_id = custom_prefix_token_id
         self.tokenized_requests = tokenized_requests
         self.max_retries = int(max_retries)
+        self.retry_on_empty = retry_on_empty
         self.verify_certificate = verify_certificate
         self._eos_string = eos_string
         self.timeout = int(timeout)
@@ -490,6 +493,28 @@ class TemplateAPI(TemplateLM):
                     ctxlens=ctxlens,
                 )
             )
+            # Some providers occasionally return 200 with empty content; that is
+            # not a model answer, so re-request instead of scoring it as wrong.
+            if generate and self.retry_on_empty:
+                for attempt in range(self.max_retries):
+                    if all((answer or "").strip() for answer in answers):
+                        break
+                    eval_logger.warning(
+                        f"Empty content in API response (attempt {attempt + 1}/{self.max_retries}). Retrying..."
+                    )
+                    async with session.post(
+                        self.base_url,
+                        json=payload,
+                        headers=self.header,
+                    ) as response:
+                        response.raise_for_status()
+                        outputs = await response.json()
+                    answers = self.parse_generations(outputs=outputs)
+                else:
+                    if not all((answer or "").strip() for answer in answers):
+                        eval_logger.error(
+                            "API still returned empty content after retries; recording as empty."
+                        )
             if cache_keys:
                 for res, cache in zip(answers, cache_keys):
                     self.cache_hook.add_partial(cache_method, cache, res)
