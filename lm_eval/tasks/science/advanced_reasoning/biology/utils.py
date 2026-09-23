@@ -9,14 +9,14 @@ def process_descriptor_prediction(doc, results):
     while len(parts) < 4:
         parts.append("")
     HBD, HBA, MW, LogP = parts[:4]
-    
+
     # Count matches with tolerance for MW and LogP
     matches = 0
     if HBD == Answer_HBD:
         matches += 1
     if HBA == Answer_HBA:
         matches += 1
-    
+
     # Check MW with tolerance of 1
     try:
         mw_pred = float(MW) if MW else 0
@@ -27,7 +27,7 @@ def process_descriptor_prediction(doc, results):
         # If conversion fails, check for exact string match
         if MW == Answer_MW:
             matches += 1
-    
+
     # Check LogP with tolerance of 1
     try:
         logp_pred = float(LogP) if LogP else 0
@@ -38,15 +38,16 @@ def process_descriptor_prediction(doc, results):
         # If conversion fails, check for exact string match
         if LogP == Answer_LogP:
             matches += 1
-    
+
     # Calculate accuracy as number of matches divided by 4
     acc = matches / 4.0
-    
-    return {"acc": acc} 
+
+    return {"acc": acc}
+
 
 def process_crispr_delivery(doc, results):
     # Extract option scores and convert to float, handle missing or invalid values gracefully
-    option_keys = ['a', 'b', 'c', 'd', 'e', 'f']
+    option_keys = ["a", "b", "c", "d", "e", "f"]
     option_scores = {}
     for k in option_keys:
         try:
@@ -77,12 +78,15 @@ def process_crispr_delivery(doc, results):
 
     # Calculate maximum possible score by taking the two highest scores
     sorted_scores = sorted(option_scores.values(), reverse=True)
-    max_possible_score = sum(sorted_scores[:2]) if len(sorted_scores) >= 2 else sum(sorted_scores)
+    max_possible_score = (
+        sum(sorted_scores[:2]) if len(sorted_scores) >= 2 else sum(sorted_scores)
+    )
 
     # Calculate accuracy as actual score divided by max possible score
     acc = actual_score / max_possible_score if max_possible_score > 0 else 0.0
 
     return {"acc": acc}
+
 
 def process_enzymatic_reaction_prediction(doc, results):
     response = results[0][0] if results and results[0] else ""

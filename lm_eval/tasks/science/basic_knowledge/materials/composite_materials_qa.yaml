@@ -1,10 +1,12 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: composites-qa
 test_split: test
 
 process_docs: !function utils.process_composites_qa
 
-doc_to_text: >
+doc_to_text: >-
   You are an expert in composite materials. Select the best answer for the following multiple choice question.
 
   Wrap your final answer in <answer> tags and return only that, e.g. <answer>A</answer>. Do not include any other text.
@@ -42,3 +44,17 @@ metric_list:
     higher_is_better: true
     ignore_case: true
     ignore_punctuation: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Compiled from fundamental mechanics theory and domain knowledge. Only 1/22 rows
+      carry a source URL in the released data.
+    source_refs: []
+    construction_date: '2025-07-01'
+    overlap_check: Manually curated by domain experts, no overlap with existing benchmark
+      and datasets, but may partially overlapped with textbooks knowledge
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

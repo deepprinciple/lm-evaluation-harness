@@ -1,7 +1,9 @@
 dataset_path: deep-principle/science-chemistry
+dataset_kwargs:
+  revision: c4cd509e1d1fe29bb56a474f5bbd2a62d5b67366
 dataset_name: TMC_properties
 test_split: test
-doc_to_text: >
+doc_to_text: >-
   {{Question}}
   Please wrap the final answer in XML tags: <answer>X</answer> (where X is [ox]/[spin])
   Answer:
@@ -29,3 +31,16 @@ metric_list:
     ignore_case: true
     ignore_punctuation: true
     ignore_numbers: false
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: published_literature
+    source: Curated from published transition-metal complex studies; the per-item DOI is recorded
+      in the dataset Reference column.
+    source_refs: []
+    construction_date: '2025-08-14'
+    overlap_check: curated from literature, no structured public source.
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

@@ -1,6 +1,7 @@
 dataset_path: deep-principle/science-chemistry
 dataset_name: multiple-choice
-dataset_kwargs: null
+dataset_kwargs:
+  revision: c4cd509e1d1fe29bb56a474f5bbd2a62d5b67366
 test_split: test
 doc_to_target: Answer
 filter_list:

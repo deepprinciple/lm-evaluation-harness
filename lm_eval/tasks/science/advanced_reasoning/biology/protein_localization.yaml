@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: protein-localization
-doc_to_text: >
+doc_to_text: >-
   You are an expert molecular biologist specializing in protein localization prediction. Your task is to analyze a protein's amino acid sequence and determine its most likely subcellular localization.
 
   Given Information:
@@ -21,3 +21,17 @@ doc_to_text: >
   Output Format:
   <ANSWER>[Single letter: A, B, C, or D]</ANSWER>
 task: protein_localization
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Protein sequences and localization annotations from UniProtKB/Swiss-Prot, restricted
+      to experimentally supported labels.
+    source_refs:
+    - UniProtKB/Swiss-Prot
+    construction_date: '2025-07-22'
+    overlap_check: Public database (UniProtKB/Swiss-Prot)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

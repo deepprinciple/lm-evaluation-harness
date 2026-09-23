@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: gwas-causal-gene
-doc_to_text: >
+doc_to_text: >-
   You are an expert in genetics and GWAS analysis. Your task is to identify the most likely causal gene within a genomic locus for a given GWAS phenotype.
   Given Information:
 
@@ -18,3 +18,17 @@ doc_to_text: >
   Output Format:
   <ANSWER>[gene symbol from the provided list]</ANSWER>
 task: gwas_causal_gene
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: GWAS loci and phenotypes curated from the NHGRI-EBI GWAS Catalog; reference genes
+      expert-curated.
+    source_refs:
+    - NHGRI-EBI GWAS Catalog
+    construction_date: '2025-07-22'
+    overlap_check: Public database (NHGRI-EBI GWAS Catalog)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

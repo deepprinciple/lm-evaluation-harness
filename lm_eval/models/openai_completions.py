@@ -289,7 +289,9 @@ class OpenAIChatCompletion(LocalChatCompletion):
             **gen_kwargs,
         }
         output["max_completion_tokens"] = 16000
-        if ("o1" in self.model or "gpt-5" in self.model) and "gpt-5-chat-latest" not in self.model:
+        if (
+            "o1" in self.model or "gpt-5" in self.model
+        ) and "gpt-5-chat-latest" not in self.model:
             output.pop("stop")
             output["temperature"] = 1
         elif "o3" in self.model:
@@ -411,10 +413,7 @@ class GeminiChatCompletion(TemplateAPI):
     @cached_property
     def header(self) -> dict:
         """Override this property to return the headers for the API request."""
-        return {
-            "x-goog-api-key": self.api_key,
-            "Content-Type": "application/json"
-        }
+        return {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
 
     def _create_payload(
         self,
@@ -427,7 +426,7 @@ class GeminiChatCompletion(TemplateAPI):
     ) -> dict:
         if gen_kwargs is None:
             gen_kwargs = {}
-        
+
         # Handle different message formats
         if isinstance(messages, str):
             # Simple string prompt
@@ -441,7 +440,13 @@ class GeminiChatCompletion(TemplateAPI):
                         content_text = msg.get("content", "")
                 if not content_text:
                     # Fallback: combine all messages
-                    content_text = "\n".join([msg.get("content", "") for msg in messages if msg.get("content")])
+                    content_text = "\n".join(
+                        [
+                            msg.get("content", "")
+                            for msg in messages
+                            if msg.get("content")
+                        ]
+                    )
             else:
                 # Assume it's a tokenized format that we need to decode
                 content_text = str(messages)
@@ -449,17 +454,7 @@ class GeminiChatCompletion(TemplateAPI):
             content_text = str(messages)
 
         # Build Gemini API payload
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": content_text
-                        }
-                    ]
-                }
-            ]
-        }
+        payload = {"contents": [{"parts": [{"text": content_text}]}]}
 
         # Add generation config if needed
         generation_config = {}
@@ -469,13 +464,13 @@ class GeminiChatCompletion(TemplateAPI):
                 generation_config["maxOutputTokens"] = gen_kwargs.get("max_tokens")
             elif "max_gen_toks" in gen_kwargs:
                 generation_config["maxOutputTokens"] = gen_kwargs.get("max_gen_toks")
-                
+
             if "temperature" in gen_kwargs:
                 generation_config["temperature"] = gen_kwargs.get("temperature", 0)
-            
+
             if "top_p" in gen_kwargs:
                 generation_config["topP"] = gen_kwargs.get("top_p")
-                
+
             if "top_k" in gen_kwargs:
                 generation_config["topK"] = gen_kwargs.get("top_k")
 
@@ -489,7 +484,7 @@ class GeminiChatCompletion(TemplateAPI):
         res = []
         if not isinstance(outputs, list):
             outputs = [outputs]
-            
+
         for out in outputs:
             candidates = out.get("candidates", [])
             if candidates:
@@ -582,11 +577,11 @@ class XAIChatCompletion(OpenAIChatCompletion):
             max_tokens = gen_kwargs.pop("max_tokens")
         elif "max_gen_toks" in gen_kwargs:
             max_tokens = gen_kwargs.pop("max_gen_toks")
-            
+
         temperature = gen_kwargs.pop("temperature", 0)
         # X-AI API does not support stop sequences, so we remove them
         gen_kwargs.pop("until", None)
-        
+
         # X-AI API format - similar to OpenAI but without stop sequences
         payload = {
             "messages": messages,
@@ -596,10 +591,10 @@ class XAIChatCompletion(OpenAIChatCompletion):
             "stream": False,  # X-AI supports streaming but we default to false for lm-eval
             **gen_kwargs,
         }
-        
+
         # Only add max_tokens if explicitly set by user
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         payload["max_tokens"] = 24000
-            
+
         return payload

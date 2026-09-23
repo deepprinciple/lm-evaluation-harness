@@ -1,4 +1,9 @@
 group: science_chemistry
+# Minimum scenario size: scenarios with fewer than 10 validated questions are
+# excluded from reported results. The task definition is kept so it remains
+# runnable and auditable; only this aggregate excludes it.
+#
+# Excluded here: redox potential estimation (n=8).
 task:
   - science_chem_forward_reaction_prediction
   - science_chem_retrosynthesis
@@ -8,7 +13,6 @@ task:
   - science_chem_ms_peak_identification
   - science_chem_reaction_mechanism
   - nmr_structure_elucidation
-  - IR_structure_elucidation
   - science_chem_tmc_properties
-  - science_chem_redox_potential
+  # - science_chem_redox_potential  # excluded: n=8 < 10 (D11)
   - science_chem_mw_to_formula

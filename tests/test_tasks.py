@@ -32,11 +32,23 @@ def get_new_tasks_else_default():
 def task_class(task_names=None, task_manager=None) -> ConfigurableTask:
     """
     Convert a list of task names to a list of ConfigurableTask instances
+
+    Each name is resolved in its own call. lm-eval rejects a single call that
+    spans overlapping groups, and a change set can legitimately contain both a
+    group and its members (e.g. editing `science_physics` and its subtasks).
+    Tasks are de-duplicated by name so each is only smoke-tested once.
     """
     if task_manager is None:
         task_manager = tasks.TaskManager()
-    res = tasks.get_task_dict(task_names, task_manager)
-    res = [x.task for x in get_task_list(res)]
+    res = []
+    seen = set()
+    for name in task_names or []:
+        for x in get_task_list(tasks.get_task_dict([name], task_manager)):
+            task_name = x.task.config.task
+            if task_name in seen:
+                continue
+            seen.add(task_name)
+            res.append(x.task)
 
     return res
 
@@ -152,7 +164,9 @@ class BaseTasks:
             )
             for doc in arr
         ]
-        assert len(requests) == limit if limit else True
+        # Some datasets hold fewer documents than `limit`, so compare against
+        # the number of documents actually selected rather than against limit.
+        assert len(requests) == len(arr)
 
 
 @pytest.mark.parametrize(

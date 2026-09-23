@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: enzymatic-reaction-prediction
-doc_to_text: >
+doc_to_text: >-
   You are an expert biochemist specializing in enzymatic reaction prediction. Your task is to predict the product of an enzymatic reaction given the reactants, enzyme EC number, and supporting information.
 
   Given Information:
@@ -25,3 +25,18 @@ metric_list:
   - metric: acc
     aggregation: mean
     higher_is_better: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Reaction records from the ECREACT 1.0 dataset, supplemented with enzyme annotations
+      from IUBMB resources.
+    source_refs:
+    - ECREACT 1.0
+    - IUBMB
+    construction_date: '2025-07-22'
+    overlap_check: Public database (ECREACT 1.0 dataset)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

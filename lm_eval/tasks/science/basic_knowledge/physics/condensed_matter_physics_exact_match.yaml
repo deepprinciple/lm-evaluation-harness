@@ -2,14 +2,27 @@ include: "_default_exact_match_yaml"
 # WARNING: This task has 0 EM samples in exact match dataset
 # Alternative: Use process_all_docs for 99 samples (but not task-specific)
 process_docs: !function utils.process_condensed_matter_physics
-doc_to_text: >
+doc_to_text: >-
   You are an expert in Condensed Matter Physics. Please solve the following question step by step.
-  
+
   Question: {{Question.strip()}}
-  
-  Provide your reasoning first, then conclude with your final answer. 
+
+  Provide your reasoning first, then conclude with your final answer.
   IMPORTANT: You MUST put your final mathematical answer in this exact format: Final Answer: \boxed{your mathematical expression}
   Do not use any other format for your final answer.
-  
+
   Answer:
 task: exact_match_condensed_matter_physics
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Manually curated short-answer condensed matter derivations.
+    source_refs: []
+    construction_date: '2025-09-09'
+    overlap_check: Manually curated by domain experts, no overlap with existing benchmark
+      and datasets, but may partially overlapped with textbooks knowledge
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

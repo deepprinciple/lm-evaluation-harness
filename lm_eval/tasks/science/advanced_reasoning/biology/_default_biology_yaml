@@ -1,5 +1,6 @@
 dataset_path: deep-principle/science_biology
-dataset_kwargs: null
+dataset_kwargs:
+  revision: 0e23996d43882adfb7ba2aa1893f2f3ce9e55c96
 test_split: test
 doc_to_target: Answer
 filter_list:

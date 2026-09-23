@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: gene-editing
-doc_to_text: >
+doc_to_text: >-
   You are an expert in CRISPR gene editing technologies. Your task is to select the most appropriate answer from the given multiple choice options based on the user's question.
 
   Given Information:
@@ -24,3 +24,16 @@ doc_to_text: >
   <ANSWER>[single letter: a, b, c, d, or e]</ANSWER>
 doc_to_target: Answer
 task: gene_editing
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Scenarios inspired by widely used experimental workflows reported in the functional
+      genomics and CRISPR screening literature.
+    source_refs: []
+    construction_date: '2025-07-22'
+    overlap_check: Partially overlapped with Genome-Bench
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

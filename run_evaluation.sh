@@ -83,7 +83,7 @@ show_help() {
 预设配置:
   all-models     所有支持的模型
   all-datasets   所有支持的数据集
-  
+
   使用示例:
   $0 -m all-models -d chemistry
   $0 -m gpt-o3 -d all-datasets
@@ -107,7 +107,7 @@ expand_presets() {
 validate_models() {
     local models="$1"
     local valid_models="gpt-o3 claude-opus-4-1 grok-4 gemini-2.5-flash deepseek-chat deepseek-reasoner"
-    
+
     IFS=',' read -ra MODEL_ARRAY <<< "$models"
     for model in "${MODEL_ARRAY[@]}"; do
         if [[ ! " $valid_models " =~ " $model " ]]; then
@@ -122,7 +122,7 @@ validate_models() {
 validate_datasets() {
     local datasets="$1"
     local valid_datasets="chemistry biology materials"
-    
+
     IFS=',' read -ra DATASET_ARRAY <<< "$datasets"
     for dataset in "${DATASET_ARRAY[@]}"; do
         if [[ ! " $valid_datasets " =~ " $dataset " ]]; then
@@ -140,12 +140,12 @@ check_python_script() {
         print_error "Python脚本不存在: $PYTHON_SCRIPT"
         return 1
     fi
-    
+
     if [[ ! -x "$PYTHON_SCRIPT" ]]; then
         print_info "设置Python脚本为可执行..."
         chmod +x "$PYTHON_SCRIPT"
     fi
-    
+
     return 0
 }
 
@@ -155,7 +155,7 @@ main() {
     local datasets=""
     local max_workers=2
     local log_dir="logs"
-    
+
     # 解析命令行参数
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -186,63 +186,63 @@ main() {
                 ;;
         esac
     done
-    
+
     # 检查必需参数
     if [[ -z "$models" ]]; then
         print_error "请指定要评估的模型 (-m/--models)"
         show_help
         exit 1
     fi
-    
+
     if [[ -z "$datasets" ]]; then
         print_error "请指定要使用的数据集 (-d/--datasets)"
         show_help
         exit 1
     fi
-    
+
     # 展开预设配置
     models=$(expand_presets "$models")
     datasets=$(expand_presets "$datasets")
-    
+
     print_info "配置检查..."
     print_info "模型: $models"
     print_info "数据集: $datasets"
     print_info "最大并发数: $max_workers"
     print_info "日志目录: $log_dir"
-    
+
     # 验证参数
     if ! validate_models "$models"; then
         exit 1
     fi
-    
+
     if ! validate_datasets "$datasets"; then
         exit 1
     fi
-    
+
     # 检查Python脚本
     if ! check_python_script; then
         exit 1
     fi
-    
+
     # 创建日志目录
     mkdir -p "$log_dir"
-    
+
     # 转换为Python脚本参数格式
     IFS=',' read -ra MODEL_ARRAY <<< "$models"
     IFS=',' read -ra DATASET_ARRAY <<< "$datasets"
-    
+
     # 构建Python命令
     python_args=()
     python_args+=("--models")
     python_args+=("${MODEL_ARRAY[@]}")
-    python_args+=("--datasets") 
+    python_args+=("--datasets")
     python_args+=("${DATASET_ARRAY[@]}")
     python_args+=("--max-workers" "$max_workers")
     python_args+=("--log-dir" "$log_dir")
-    
+
     print_info "开始执行评估任务..."
     print_info "执行命令: python3 $PYTHON_SCRIPT ${python_args[*]}"
-    
+
     # 执行Python脚本
     if python3 "$PYTHON_SCRIPT" "${python_args[@]}"; then
         print_success "所有任务执行完成!"

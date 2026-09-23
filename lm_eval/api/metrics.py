@@ -178,6 +178,7 @@ def acc_norm_fn(items):  # This is a passthrough function
 def acc_mutual_info_fn(items):  # This is a passthrough function
     return items
 
+
 @register_metric(
     metric="mae",
     higher_is_better=False,
@@ -204,8 +205,6 @@ def mae_metric(predictions, references):
             continue  # Skip invalid generations
 
     return sum(errors) / len(errors) if errors else float("inf")
-
-
 
 
 ### the code used in the `exact_match_hf_evaluate` function is ported from

@@ -1,5 +1,6 @@
 from rdkit import Chem
-from rdkit.Chem import Lipinski, Descriptors
+from rdkit.Chem import Descriptors, Lipinski
+
 
 # SMILES string
 smiles = "CN1CCN(S(=O)(=O)c2ccc3nccc(Nc4ccc(Oc5ccccc5)cc4)c3c2)CC1"
@@ -13,7 +14,7 @@ if mol is not None:
     hba = Lipinski.NumHAcceptors(mol)  # Hydrogen Bond Acceptors
     mw = Descriptors.MolWt(mol)  # Molecular Weight
     logp = Descriptors.MolLogP(mol)  # LogP
-    
+
     # Format and print output
     print(f"<HBD>{hbd}</HBD>")
     print(f"<HBA>{hba}</HBA>")
@@ -21,4 +22,3 @@ if mol is not None:
     print(f"<LogP>{logp:.2f}</LogP>")
 else:
     print("Error: Could not parse SMILES string")
-

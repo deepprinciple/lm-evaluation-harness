@@ -335,8 +335,11 @@ class AnthropicChat(LocalCompletionsAPI):
             cleaned_messages.append(cleaned_msg)
 
         gen_kwargs.pop("do_sample", False)
-        max_tokens = gen_kwargs.pop("max_gen_toks", self._max_gen_toks)
-        temperature = gen_kwargs.pop("temperature", 0)
+        # Popped so they are not forwarded as unsupported kwargs; the payload
+        # below sets max_tokens and temperature explicitly (thinking mode
+        # requires temperature=1).
+        gen_kwargs.pop("max_gen_toks", self._max_gen_toks)
+        gen_kwargs.pop("temperature", 0)
         stop = handle_stop_sequences(gen_kwargs.pop("until", ["\n\nHuman:"]), eos=eos)
         if not isinstance(stop, list):
             stop = [stop]
@@ -351,14 +354,11 @@ class AnthropicChat(LocalCompletionsAPI):
             # "temperature": temperature,
             "temperature": 1,
             "stop_sequences": stop,
-            "thinking": {
-                "type": "enabled",
-                "budget_tokens": 25000
-            },
+            "thinking": {"type": "enabled", "budget_tokens": 25000},
             **gen_kwargs,
         }
         eval_logger.info(f"max_tokens: {out['max_tokens']}")
-        
+
         if system:
             out["system"] = system
         return out
@@ -373,7 +373,7 @@ class AnthropicChat(LocalCompletionsAPI):
             for choices in out["content"]:
                 try:
                     res.append(choices["text"])
-                except:
+                except Exception:
                     pass
         return res
 

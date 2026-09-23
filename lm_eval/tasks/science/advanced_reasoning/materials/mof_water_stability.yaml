@@ -1,9 +1,11 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: mof-water-stability
 test_split: test
 
 process_docs: !function utils.process_mof_water_stability
-doc_to_text: >
+doc_to_text: >-
   You are an expert in metal-organic frameworks. You will be given a passage of text from a paper, and must use it to decide the MOF's water stability.
   Note, the passage may not contain enough information, or contain relevant information, needed to answer the question.
 
@@ -37,3 +39,17 @@ metric_list:
     higher_is_better: true
     ignore_case: true
     ignore_punctuation: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: published_literature
+    source: Expert-curated from experimentally measured water-stability data in the MOF-ChemUnity
+      database; per-item DOI in the dataset Reference column.
+    source_refs:
+    - MOF-ChemUnity
+    construction_date: '2025-07-01'
+    overlap_check: Public database (MOF-ChemUnity)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

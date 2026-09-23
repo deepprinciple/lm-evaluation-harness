@@ -15,7 +15,9 @@ def process_lammps_vasp(dataset):
             "Answer": (row.get("Answer") or "").strip(),
             "Comment": (row.get("Comment") or "").strip(),  # VASP / LAMMPS
         }
+
     return dataset.map(format_row)
+
 
 def process_mof_synthesis_qa(dataset):
     def format_row(row):
@@ -26,9 +28,11 @@ def process_mof_synthesis_qa(dataset):
             "Option_C": row["Option_C"].strip(),
             "Option_D": row["Option_D"].strip(),
             "Option_E": row.get("Option_E", "").strip(),
-            "Answer": row["Answer"].strip()  # no XML tags!
+            "Answer": row["Answer"].strip(),  # no XML tags!
         }
+
     return dataset.map(format_row)
+
 
 def process_battery_electrolyte_qa(dataset):
     def format_row(row):
@@ -38,9 +42,11 @@ def process_battery_electrolyte_qa(dataset):
             "Option_B": row["Option_B"].strip(),
             "Option_C": row["Option_C"].strip(),
             "Option_D": row.get("Option_D", "").strip(),
-            "Answer": row["Answer"].strip()  # ← no <answer> wrapper here!
+            "Answer": row["Answer"].strip(),  # ← no <answer> wrapper here!
         }
+
     return dataset.map(format_row)
+
 
 def process_biomaterials_qa(dataset):
     def format_row(row):
@@ -54,10 +60,12 @@ def process_biomaterials_qa(dataset):
             "Option_B": s("Option_B"),
             "Option_C": s("Option_C"),
             "Option_D": s("Option_D"),  # now None → "" → strip() → ""
-            "Answer"  : s("Answer"),
+            "Answer": s("Answer"),
         }
+
     return dataset.map(format_row)
-   
+
+
 def process_composites_qa(dataset):
     def format_row(row):
         # helper to safely pull and strip any field
@@ -70,9 +78,11 @@ def process_composites_qa(dataset):
             "Option_B": s("Option_B"),
             "Option_C": s("Option_C"),
             "Option_D": s("Option_D"),  # now None → "" → strip() → ""
-            "Answer"  : s("Answer"),
+            "Answer": s("Answer"),
         }
+
     return dataset.map(format_row)
+
 
 def process_materials_science_qa(dataset):
     def format_row(row):
@@ -86,19 +96,20 @@ def process_materials_science_qa(dataset):
             "Option_B": s("Option_B"),
             "Option_C": s("Option_C"),
             "Option_D": s("Option_D"),  # now None → "" → strip() → ""
-            "Answer"  : s("Answer"),
+            "Answer": s("Answer"),
         }
+
     return dataset.map(format_row)
 
 
 def process_lammps_vasp_prediction(doc, results):
-    reference = doc['Answer'] 
+    reference = doc["Answer"]
     answer = results[0]
     if len(answer) == 0:
         return {"acc": 0.0}
     else:
         answer = answer[0]
-        answer_list = answer.split(',')
-        ref_list = reference.split(',')
+        answer_list = answer.split(",")
+        ref_list = reference.split(",")
         correct = len([x for x in answer_list if x in ref_list])
         return {"acc": correct / max(len(ref_list), len(answer_list))}

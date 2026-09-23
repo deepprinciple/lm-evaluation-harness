@@ -1,4 +1,6 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: corrosion-prediction
 test_split: test
 
@@ -6,7 +8,7 @@ process_docs: !function utils.process_corrosion_prediction
 
 doc_to_text:
   You are a chemist assistant with expertise in material compatibility and chemical properties. Your task is to determine if a given chemical is corrosive to metals based on its SMILES representation.
-  
+
   Given the SMILES representation '{{smiles}}', determine if this compound is corrosive to metals. Respond strictly with '0' for non-corrosive and '1' for corrosive, without any additional text.
 
 doc_to_target: label
@@ -26,3 +28,18 @@ metric_list:
     higher_is_better: true
 
 task: corrosion_prediction
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Constructed from the corrosion-survey database published by NACE International;
+      experimentally reported corrosion outcomes of organic solvents against metals, labelled
+      per documented observation.
+    source_refs:
+    - NACE International corrosion-survey database
+    construction_date: '2025-07-01'
+    overlap_check: Public database (NACE International corrosion-survey database)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

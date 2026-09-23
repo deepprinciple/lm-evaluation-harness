@@ -1,11 +1,13 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: pxrd-crystal-system-classification
 test_split: test
 
 process_docs: !function utils.process_pxrd_crystal_system
 process_results: !function utils.normalize_prediction
 
-doc_to_text: >
+doc_to_text: >-
   You are an expert crystallographer. Your task is to classify the crystal system of the following material based on its PXRD data.
 
   Material type: {{material_type}}
@@ -34,3 +36,20 @@ metric_list:
   - metric: exact_match
     aggregation: mean
     higher_is_better: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Ionic compounds from the Materials Project and MOFs from CoRE-2019; symmetry from
+      Pymatgen SpacegroupAnalyzer/Spglib and PXRD simulated with Pymatgen XRDCalculator.
+    source_refs:
+    - Materials Project
+    - CoRE-2019
+    - Pymatgen
+    - Spglib
+    construction_date: '2025-07-01'
+    overlap_check: Compounds from public database (CoRE-2019) with Pymatgen XRDCalculator
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

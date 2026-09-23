@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: crispr-delivery
-doc_to_text: >
+doc_to_text: >-
   You are an expert in CRISPR gene editing technologies. Your task is to identify the two most relevant CRISPR delivery methods based on the user's requirements.
 
   Given Information:
@@ -30,3 +30,16 @@ metric_list:
   - metric: acc
     aggregation: mean
     higher_is_better: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Manually curated by domain experts from experimental constraints reported in the
+      CRISPR literature.
+    source_refs: []
+    construction_date: '2025-07-22'
+    overlap_check: not public, experimental constraints reported in the CRISPR literature.
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

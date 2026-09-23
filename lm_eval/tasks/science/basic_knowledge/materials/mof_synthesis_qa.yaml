@@ -1,9 +1,11 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: mof-synthesis-qa
 test_split: test
 
 process_docs: !function utils.process_mof_synthesis_qa
-doc_to_text: >
+doc_to_text: >-
   You are an expert in MOF synthesis. Select the correct answer from the choices below.
 
   Wrap your final answer in <answer> tags, do not include any additional text or explanations in your response.
@@ -39,3 +41,17 @@ metric_list:
     higher_is_better: true
     ignore_case: true
     ignore_punctuation: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Manually authored by a domain expert; MOF synthesis, characterization and analysis;
+      no structured public source.
+    source_refs: []
+    construction_date: '2025-07-01'
+    overlap_check: Manually curated by domain experts, no overlap with existing benchmark
+      and datasets, but may partially overlapped with textbooks knowledge
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

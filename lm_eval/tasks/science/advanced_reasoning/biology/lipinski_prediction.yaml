@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: lipinski-prediction
-doc_to_text: >
+doc_to_text: >-
   You are an expert biochemist specializing in drug-like property analysis. Your task is to analyze a molecule's SMILES representation and determine whether it satisfies Lipinski's Rule of Five.
 
   Given Information:
@@ -25,3 +25,17 @@ doc_to_text: >
   Output Format:
   <ANSWER>[Single letter: A or B]</ANSWER>
 task: lipinski_prediction
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Molecules and labels sampled from CycPeptMPDB and ChEMBL.
+    source_refs:
+    - CycPeptMPDB
+    - ChEMBL
+    construction_date: '2025-07-26'
+    overlap_check: Public database (CycPeptMPDB and ChEMBL)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

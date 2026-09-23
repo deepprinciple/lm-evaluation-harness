@@ -1,7 +1,7 @@
 include: "_default_multi_choice_yaml"
 # Uses specific task filtering: 4 MC samples
 process_docs: !function utils.process_core_knowledge
-doc_to_text: >
+doc_to_text: >-
   You are an expert in Core Physics Knowledge. The following are multiple choice questions about core physics knowledge.
   Let's think step by step. Please wrap the final answer in XML tags: <answer>X</answer> (where X can be A, B, C, D, or combinations like AB, ABC, etc.)
   Question: {{Question.strip()}}
@@ -11,3 +11,17 @@ doc_to_text: >
   D: {{Option_D}}
   Answer:
 task: multiple_choice_core_knowledge
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Manually curated foundational operator algebra and elementary physical principles.
+    source_refs: []
+    construction_date: '2025-09-09'
+    overlap_check: Manually curated by domain experts, no overlap with existing benchmark
+      and datasets, but may partially overlapped with textbooks knowledge
+    evaluation_status: evaluated
+    note: n=7, below the minimum scenario size.
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

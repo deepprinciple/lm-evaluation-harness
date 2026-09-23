@@ -1,14 +1,27 @@
 include: "_default_exact_match_yaml"
 # Uses specific task filtering: 8 EM + 25 MC samples
 process_docs: !function utils.process_quantum_information
-doc_to_text: >
+doc_to_text: >-
   You are an expert in Quantum Information Theory. Please solve the following question step by step.
-  
+
   Question: {{Question.strip()}}
-  
-  Provide your reasoning first, then conclude with your final answer. 
+
+  Provide your reasoning first, then conclude with your final answer.
   IMPORTANT: You MUST put your final mathematical answer in this exact format: Final Answer: \boxed{your mathematical expression}
   Do not use any other format for your final answer.
-  
+
   Answer:
 task: exact_match_quantum_information
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: expert_authored
+    source: Manually curated short-answer quantum information problems.
+    source_refs: []
+    construction_date: '2025-09-09'
+    overlap_check: Manually curated by domain experts, no overlap with existing benchmark
+      and datasets, but may partially overlapped with textbooks knowledge
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

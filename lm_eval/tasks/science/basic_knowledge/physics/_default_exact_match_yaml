@@ -1,18 +1,20 @@
 dataset_path: deep-principle/science_physics
+dataset_kwargs:
+  revision: 5f5f92db129a26aa1d1c94608f88eb7ed9922539
 dataset_name: exact_match
 test_split: test
 
 # Process ALL documents, not just specific tasks (82/99 examples have None tasks)
 process_docs: !function utils.process_all_docs
-doc_to_text: >
+doc_to_text: >-
   You are an expert in physics and mathematics. Please solve the following question step by step.
-  
+
   Question: {{Question.strip()}}
-  
-  Provide your reasoning first, then conclude with your final answer. 
+
+  Provide your reasoning first, then conclude with your final answer.
   IMPORTANT: You MUST put your final mathematical answer in this exact format: Final Answer: \boxed{your mathematical expression}
   Do not use any other format for your final answer.
-  
+
   Answer:
 doc_to_target: Answer
 task: exact_match_physics_all

@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: matched-molecular-pair
-doc_to_text: >
+doc_to_text: >-
   You are an expert biochemist specializing in molecular property prediction. Your task is to compare the property values of two molecules based on their SMILES structures.
 
   Given Information:
@@ -26,3 +26,16 @@ doc_to_text: >
   Output Format:
   <ANSWER>[Single letter: A or B]</ANSWER>
 task: matched_molecular_pair
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Property values (LD50 or Vdss) obtained from Therapeutics Data Commons.
+    source_refs:
+    - Therapeutics Data Commons
+    construction_date: '2025-07-26'
+    overlap_check: Public database (Therapeutics Data Commons)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

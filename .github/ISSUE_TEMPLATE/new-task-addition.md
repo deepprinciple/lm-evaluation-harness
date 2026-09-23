@@ -25,7 +25,6 @@ assignees: ''
 **Main Goal**:
 <!-- Clearly state what aspect of scientific knowledge or reasoning this task evaluates -->
 
-
 ## Dataset Information
 
 **Source**:
@@ -45,11 +44,13 @@ assignees: ''
 ## Sample Implementation
 
 **Input Example**:
+
 ```
 <!-- Provide a representative example of task input -->
 ```
 
 **Expected Output**:
+
 ```
 <!-- Show what the correct output should look like -->
 ```

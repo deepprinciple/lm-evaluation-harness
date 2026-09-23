@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: descriptor-prediction
-doc_to_text: >
+doc_to_text: >-
   You are an expert biochemist specializing in molecular property calculation. Your task is to analyze a molecule's SMILES representation and calculate its key molecular descriptors.
 
   Given Information:
@@ -30,3 +30,19 @@ metric_list:
   - metric: acc
     aggregation: mean
     higher_is_better: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Drug-like molecules sampled from CycPeptMPDB and ChEMBL; HBD/HBA/MW/logP cross-checked
+      against RDKit.
+    source_refs:
+    - CycPeptMPDB
+    - ChEMBL
+    - RDKit
+    construction_date: '2025-08-18'
+    overlap_check: Public database (CycPeptMPDB and ChEMBL)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

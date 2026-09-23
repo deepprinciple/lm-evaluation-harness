@@ -50,3 +50,30 @@ examples/wandb/
 /result
 /LLM_LIST
 TASK-CHECKLIST
+.worktrees/
+
+# Generated evaluation outputs (kept on disk, never committed)
+/results/
+
+# Local working data and scratch files
+/temp_data/
+/temp_*.py
+/*.jsonl
+/*.csv
+/analyze_jsonl_files.py
+/quantum_question_solver.py
+/quantum_solution.txt
+/samples_gene_editing.json
+/changelog.txt
+/jsonl_comparison_analysis.md
+/final_jsonl_comparison_summary.md
+
+# Secrets - never commit
+.secret
+*.secret
+.secrets
+*.pem
+*.key
+
+# Local-only tooling and working notes (kept on disk, not published)
+/scripts/science_provenance/

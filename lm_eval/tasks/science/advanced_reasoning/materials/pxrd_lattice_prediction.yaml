@@ -1,4 +1,6 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: pxrd-lattice-prediction
 test_split: test
 
@@ -11,7 +13,7 @@ filter_list:
       - function: "regex"
         regex_pattern: "<answer>(.*?)</answer>"
         group_select: 0
-doc_to_text: >
+doc_to_text: >-
   You are an expert in crystallography and materials informatics.
 
   Given the PXRD peak positions of a {{comment}}, the crystal system, and associated Miller indices,
@@ -51,3 +53,19 @@ metric_list:
   - metric: mae
     aggregation: mean
     higher_is_better: false
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Ionic compounds from the Materials Project and MOFs from CoRE-2019; ground-truth
+      lattice parameters extracted from the source CIFs.
+    source_refs:
+    - Materials Project
+    - CoRE-2019
+    - Pymatgen
+    construction_date: '2025-07-01'
+    overlap_check: Compounds from public database (CoRE-2019)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

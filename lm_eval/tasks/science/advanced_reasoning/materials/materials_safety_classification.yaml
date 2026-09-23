@@ -1,10 +1,12 @@
 dataset_path: deep-principle/science_materials
+dataset_kwargs:
+  revision: af1c11c8dc0ebbd4b10323a4916e910f1f48a00c
 dataset_name: materials-safety-classification
 test_split: test
 
 process_docs: !function utils.process_safety_prediction
 
-doc_to_text: >
+doc_to_text: >-
   You are an expert chemist with a strong knowledge in materials safety data.
   Your task is to determine if a given compound is a {{comment}}, and therefore hazardous, based on its SMILES representation.
 
@@ -30,3 +32,17 @@ metric_list:
     aggregation: mean
     higher_is_better: true
     ignore_case: true
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Constructed from PubChem GHS hazard annotations for inhalation toxicity (n=80)
+      and flammability (n=60).
+    source_refs:
+    - PubChem
+    construction_date: '2025-07-01'
+    overlap_check: Public database (PubChem)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

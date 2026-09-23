@@ -1,6 +1,6 @@
 include: _default_biology_yaml
 dataset_name: fragment-completion
-doc_to_text: >
+doc_to_text: >-
   You are an expert biochemist specializing in molecular fragment analysis and property prediction. Your task is to identify which complete molecule from the given options best matches the masked fragment and target property value.
 
   Given Information:
@@ -31,3 +31,16 @@ doc_to_text: >
   <ANSWER>[Single letter: A, B, C, or D]</ANSWER>
 doc_to_target: Answer
 task: fragment_completion
+
+# >>> provenance metadata (managed by sync_task_metadata.py) >>>
+metadata:
+  version: '0.1'
+  provenance:
+    source_type: public_database
+    source: Masked fragments and target property values sampled from Therapeutics Data Commons.
+    source_refs:
+    - Therapeutics Data Commons
+    construction_date: '2025-07-22'
+    overlap_check: Public database (Therapeutics Data Commons)
+    evaluation_status: evaluated
+# <<< provenance metadata (managed by sync_task_metadata.py) <<<

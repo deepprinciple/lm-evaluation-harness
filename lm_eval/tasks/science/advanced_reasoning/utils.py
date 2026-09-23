@@ -1,6 +1,8 @@
 import logging
 
+
 eval_logger = logging.getLogger(__name__)
+
 
 def process_smiles(doc, results):
     reference = doc["SMILES"]
@@ -14,7 +16,9 @@ def process_smiles(doc, results):
     if len(mols) == 0:
         return {"acc": 0.0}
     if len(mols) > 1:
-        eval_logger.info("Multiple molecules found in response. Only the first molecule will be used.")
+        eval_logger.info(
+            "Multiple molecules found in response. Only the first molecule will be used."
+        )
         smiles = mols[0]
     else:
         smiles = mols[0]
