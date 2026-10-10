@@ -166,6 +166,32 @@ def record(output):
     return json.loads(Path(output.metadata["record_path"]).read_text())
 
 
+def test_message_delta_accepts_nullable_relay_metadata():
+    items = events()
+    items[-2]["delta"].update(stop_details=None, container=None, stop_sequence=None)
+    items[-2]["context_management"] = {"applied_edits": []}
+    parsed = parse_stream(stream(items), "claude-opus-5-5")
+    assert classify(parsed, "claude-opus-5-5") == ("ok", "<answer>A</answer>")
+    assert parsed["message_stop"] is True
+    assert parsed["response"]["stop_details"] is None
+    assert parsed["response"]["container"] is None
+
+
+@pytest.mark.parametrize("field", ["container", "stop_details"])
+def test_message_delta_rejects_non_object_metadata(field):
+    items = events()
+    items[-2]["delta"][field] = "invalid"
+    parsed = parse_stream(stream(items), "claude-opus-5-5")
+    assert classify(parsed, "claude-opus-5-5")[0] == "protocol_error"
+
+
+def test_message_delta_still_rejects_unknown_fields():
+    items = events()
+    items[-2]["delta"]["unknown_generation_control"] = None
+    parsed = parse_stream(stream(items), "claude-opus-5-5")
+    assert classify(parsed, "claude-opus-5-5")[0] == "protocol_error"
+
+
 def test_stream_preserves_thinking_signature_redaction_and_usage():
     items = events()
     items.insert(

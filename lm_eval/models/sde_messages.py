@@ -114,8 +114,14 @@ def parse_stream(body: str, expected_model: str) -> dict[str, Any]:
                 delta, usage = event.get("delta", {}), event.get("usage", {})
                 if (
                     not isinstance(delta, dict)
-                    or set(delta) - {"stop_reason", "stop_sequence"}
+                    or set(delta)
+                    - {"stop_reason", "stop_sequence", "stop_details", "container"}
                     or not isinstance(usage, dict)
+                    or any(
+                        delta.get(field) is not None
+                        and not isinstance(delta[field], dict)
+                        for field in ("stop_details", "container")
+                    )
                 ):
                     raise ValueError("invalid message_delta")
                 message.update(delta)
