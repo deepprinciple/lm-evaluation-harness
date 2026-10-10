@@ -125,7 +125,7 @@ class SDEChatCompletion(LM):
             raise ValueError("Do not use --use_cache for independent SDE draws")
         super().set_cache_hook(cache_hook)
 
-    def create_payload(self, request: Instance) -> dict[str, Any]:
+    def chat_input(self, request: Instance) -> tuple[list[dict[str, str]], int]:
         prompt, kwargs = request.args
         messages = json.loads(prompt)
         if not isinstance(messages, list) or not messages:
@@ -146,6 +146,10 @@ class SDEChatCompletion(LM):
         )
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
+        return messages, max_tokens
+
+    def create_payload(self, request: Instance) -> dict[str, Any]:
+        messages, max_tokens = self.chat_input(request)
         return {
             "model": self.model,
             "messages": messages,
@@ -276,6 +280,7 @@ class SDEChatCompletion(LM):
                 await asyncio.sleep(delay)
                 attempt = {
                     "attempt": number + 1,
+                    "record_path": str(path),
                     "status": "running",
                     "started_at": time.time(),
                 }
