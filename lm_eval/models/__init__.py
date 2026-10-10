@@ -15,6 +15,7 @@ from . import (
     optimum_ipex,
     optimum_lm,
     sde_chat,
+    sde_claude_code,
     sde_messages,
     sde_responses,
     sglang_causallms,
