@@ -14,13 +14,6 @@ from lm_eval.models.sde_chat import save_record
 from lm_eval.models.sde_messages import parse_stream
 
 
-ALLOWED_TOOLS = {
-    "mcp__sde_tools__web_search",
-    "mcp__sde_tools__read_url",
-    "mcp__sde_tools__run_shell",
-}
-
-
 def redact(text: str, secrets: list[str]) -> str:
     for secret in secrets:
         if secret:
@@ -29,7 +22,7 @@ def redact(text: str, secrets: list[str]) -> str:
 
 
 def inspect_stream(body: str, expected_model: str) -> dict[str, Any]:
-    parsed = parse_stream(body, expected_model)
+    parsed = parse_stream(body, expected_model, agent_mode=True)
     segments = parsed["relay_segments"]
     response = parsed["response"]
     messages = [
@@ -43,6 +36,20 @@ def inspect_stream(body: str, expected_model: str) -> dict[str, Any]:
         for segment in segments
     ]
     failure = parsed["stream_error"]
+    tool_calls = [
+        block
+        for segment in segments
+        for block in segment["response"]["content"]
+        if "tool" in block["type"]
+    ]
+    tool_errors = [
+        block
+        for block in tool_calls
+        if block.get("is_error") is True
+        or block["type"].endswith("_error")
+        or isinstance(block.get("content"), dict)
+        and str(block["content"].get("type", "")).endswith("_error")
+    ]
     status = "ok"
     if failure:
         status = (
@@ -52,29 +59,82 @@ def inspect_stream(body: str, expected_model: str) -> dict[str, Any]:
         status = "model_mismatch"
     elif not parsed["message_stop"] or not parsed["blocks_closed"]:
         status = "transport_failed"
-    elif any(
-        block["type"] not in {"text", "thinking", "redacted_thinking", "tool_use"}
-        or (
-            block["type"] == "tool_use"
-            and block.get("name") not in ALLOWED_TOOLS | {"EndConversation"}
-        )
-        for block in response["content"]
-    ):
-        status = "tool_profile_mismatch"
     elif response.get("stop_reason") not in {
         "end_turn",
         "tool_use",
         "max_tokens",
         "refusal",
         "model_context_window_exceeded",
+        "pause_turn",
     }:
         status = "protocol_error"
+    elif tool_errors:
+        status = "tool_error"
     return {
         "status": status,
         "messages": messages,
         "error": failure,
         "event_counts": parsed["event_counts"],
+        "tool_calls": tool_calls,
+        "tool_errors": tool_errors,
+        "response": response,
     }
+
+
+def inspect_message(body: str, expected_model: str) -> dict[str, Any]:
+    """Validate atomic Messages responses using the same agent block parser."""
+    try:
+        message = json.loads(body)
+        if not isinstance(message, dict) or not isinstance(
+            message.get("content"), list
+        ):
+            raise TypeError("Invalid Messages response")
+        events: list[dict[str, Any]] = [
+            {"type": "message_start", "message": {**message, "content": []}}
+        ]
+        for index, block in enumerate(message["content"]):
+            events.extend(
+                [
+                    {
+                        "type": "content_block_start",
+                        "index": index,
+                        "content_block": block,
+                    },
+                    {"type": "content_block_stop", "index": index},
+                ]
+            )
+        events.append({"type": "message_stop"})
+        result = inspect_stream(
+            "".join("data: " + json.dumps(event) + "\n\n" for event in events),
+            expected_model,
+        )
+        # These are synthetic parser events, not events observed on the wire.
+        result["event_counts"] = {}
+        return result
+    except (ValueError, TypeError) as exc:
+        return {"status": "protocol_error", "error": str(exc)}
+
+
+def helper_evidence(body: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recognize isolated native web helpers from server tool declarations.
+
+    Main agent requests also declare client tools. A budget/model difference or
+    a search mention in the prompt alone is never evidence of a helper.
+    """
+    tools = body.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return []
+    if not all(
+        isinstance(tool, dict)
+        and isinstance(tool.get("type"), str)
+        and tool["type"].startswith(("web_search_", "web_fetch_"))
+        for tool in tools
+    ):
+        return []
+    choice = body.get("tool_choice", {})
+    if not isinstance(choice, dict) or choice.get("type") == "none":
+        return []
+    return [{"type": tool["type"], "name": tool.get("name")} for tool in tools]
 
 
 class MessagesProxy:
@@ -113,11 +173,16 @@ class MessagesProxy:
         await self.runner.cleanup()
 
     def persist(self, call: dict[str, Any]) -> None:
+        call["fatal"] = call["status"] not in ("running", "ok") and (
+            call.get("request_kind") != "tool_helper"
+            or call.get("http_status") in (401, 403)
+            or call["status"] in ("protocol_error", "model_mismatch")
+        )
         clean = json.loads(
             redact(json.dumps(call, ensure_ascii=False), self.secrets + [self.token])
         )
         save_record(self.directory / f"api_{call['index']:03}.json", clean)
-        if call["status"] not in ("running", "ok"):
+        if call["fatal"]:
             self.failure.set()
 
     async def forward(self, request: web.Request) -> web.StreamResponse:
@@ -146,7 +211,7 @@ class MessagesProxy:
         try:
             body = await request.json()
             if not isinstance(body, dict):
-                raise ValueError("Expected object payload")
+                raise TypeError("Expected object payload")
         except (ValueError, TypeError):
             return web.json_response(
                 {"error": {"message": "Malformed local payload"}}, status=400
@@ -160,25 +225,58 @@ class MessagesProxy:
         self.calls.append(call)
         raw = self.directory / f"api_{call['index']:03}.sse"
         call["raw_path"] = str(raw)
-        main = request.path == "/v1/messages"
+        messages = request.path == "/v1/messages"
+        evidence = helper_evidence(body)
+        main = messages and not evidence
+        call["request_kind"] = (
+            "count_tokens" if not messages else "tool_helper" if evidence else "main"
+        )
+        initial_main = main and not any(
+            previous.get("request_kind") == "main" for previous in self.calls[:-1]
+        )
+        # Followup purpose cannot be inferred reliably from the native wire format.
+        call["profile_enforcement"] = (
+            "initial_main_strict"
+            if initial_main
+            else "native_followup"
+            if main
+            else "isolated_web_helper"
+            if messages
+            else "count_tokens_model_only"
+        )
+        call["helper_evidence"] = evidence
+        call["expected_profile"] = {
+            "model": self.api_model,
+            "max_tokens": self.max_tokens,
+            "effort": self.effort,
+        }
+        output_config = body.get("output_config")
+        call["actual_profile"] = {
+            "model": body.get("model"),
+            "max_tokens": body.get("max_tokens"),
+            "effort": (
+                output_config.get("effort") if isinstance(output_config, dict) else None
+            ),
+        }
+        call["profile_mismatches"] = [
+            field
+            for field, value in call["expected_profile"].items()
+            if call["actual_profile"][field] != value
+        ]
         status = None
-        if body.get("model") != self.api_model:
+        if (
+            not isinstance(body.get("model"), str)
+            or not body["model"]
+            or not evidence
+            and body["model"] != self.api_model
+        ):
             status = "model_mismatch"
-        elif main and (
+        elif initial_main and (
             not isinstance(body.get("output_config"), dict)
             or body.get("max_tokens") != self.max_tokens
             or body.get("output_config", {}).get("effort") != self.effort
         ):
             status = "budget_mismatch"
-        elif main and (
-            not isinstance(body.get("tools", []), list)
-            or any(
-                not isinstance(t, dict)
-                or t.get("name") not in ALLOWED_TOOLS | {"EndConversation"}
-                for t in body.get("tools", [])
-            )
-        ):
-            status = "tool_profile_mismatch"
         if status:
             call["status"] = status
             self.persist(call)
@@ -250,9 +348,18 @@ class MessagesProxy:
                         if response.status in (408, 429) or response.status >= 500
                         else "http_error"
                     )
-                elif main:
+                elif messages:
+                    content_type = response.headers.get("Content-Type", "")
+                    inspect = (
+                        inspect_message
+                        if "application/json" in content_type
+                        else inspect_stream
+                    )
+                    call["response_format"] = (
+                        "json" if inspect is inspect_message else "sse"
+                    )
                     call.update(
-                        inspect_stream(b"".join(chunks).decode("utf-8"), self.api_model)
+                        inspect(b"".join(chunks).decode("utf-8"), body["model"])
                     )
                 else:
                     call["status"] = "ok"

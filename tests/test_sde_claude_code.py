@@ -14,7 +14,7 @@ from lm_eval.api.task import ConfigurableTask
 from lm_eval.evaluator import evaluate
 from lm_eval.models import sde_claude_code as cc
 from lm_eval.models import sde_tools as tools
-from lm_eval.models.sde_cc_proxy import ALLOWED_TOOLS, MessagesProxy, inspect_stream
+from lm_eval.models.sde_cc_proxy import MessagesProxy, inspect_stream
 
 
 def event(kind, **kwargs):
@@ -24,13 +24,16 @@ def event(kind, **kwargs):
 def trace(
     answer="<answer>A</answer>",
     *,
-    tool="mcp__sde_tools__run_shell",
+    tool="Bash",
     stop="end_turn",
     final=True,
 ):
     events = [
         event(
-            "system", subtype="init", model="test-model", tools=sorted(ALLOWED_TOOLS)
+            "system",
+            subtype="init",
+            model="test-model",
+            tools=["Bash", "Read", "Write", "WebSearch", "Agent"],
         ),
         event(
             "assistant",
@@ -96,7 +99,7 @@ def test_cli_classification_never_consults_scientific_score(answer, stop, status
     "body,status",
     [
         (trace(final=False), "transport_failed"),
-        (trace(tool="Bash"), "tool_profile_mismatch"),
+        (trace(tool="Bash"), "ok"),
         (trace() + "{broken", "protocol_error"),
         (
             trace() + json.dumps(event("result", subtype="success", result="B")),
@@ -125,6 +128,235 @@ def test_failure_and_turn_limit_are_not_normal_answers():
 )
 def test_proxy_closure_and_model(body, status):
     assert inspect_stream(body, "test-model")["status"] == status
+
+
+@pytest.mark.parametrize(
+    "tool",
+    ["Bash", "Read", "Write", "WebSearch", "WebFetch", "Agent", "custom_plugin_tool"],
+)
+def test_unrestricted_trace_records_native_tools(tool):
+    parsed = cc.summarize_trace(trace(tool=tool), 0)
+    assert parsed["status"] == "ok"
+    assert parsed["tool_calls"][0]["name"] == tool
+
+
+def native_search_stream(model="test-model", closed=True):
+    body = stream(model=model, closed=False)
+    blocks = [
+        event(
+            "content_block_start",
+            index=0,
+            content_block={
+                "type": "server_tool_use",
+                "id": "search_1",
+                "name": "web_search",
+                "input": {},
+            },
+        ),
+        event(
+            "content_block_delta",
+            index=0,
+            delta={"type": "input_json_delta", "partial_json": '{"query":"science"}'},
+        ),
+        event("content_block_stop", index=0),
+        event(
+            "content_block_start",
+            index=1,
+            content_block={
+                "type": "web_search_tool_result",
+                "tool_use_id": "search_1",
+                "content": [
+                    {
+                        "type": "web_search_result",
+                        "url": "https://example.org",
+                        "title": "science",
+                    }
+                ],
+            },
+        ),
+        event("content_block_stop", index=1),
+    ]
+    if closed:
+        blocks.append(event("message_stop"))
+    return body + "".join("data: " + json.dumps(e) + "\n\n" for e in blocks)
+
+
+def test_native_server_search_is_recorded_with_results_and_usage():
+    parsed = inspect_stream(native_search_stream(), "test-model")
+    assert parsed["status"] == "ok"
+    assert parsed["tool_calls"][0]["name"] == "web_search"
+    assert parsed["tool_calls"][1]["content"][0]["url"] == "https://example.org"
+    assert parsed["messages"][0]["usage"] == {"input_tokens": 8, "output_tokens": 3}
+    assert (
+        inspect_stream(native_search_stream(closed=False), "test-model")["status"]
+        == "transport_failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["cli_error", "refusal_block", "after_result", "missing_init", "result_error"],
+)
+def test_native_tools_still_require_a_clean_completed_terminal(failure):
+    items = [json.loads(line) for line in trace(tool="WebFetch").splitlines()]
+    if failure == "cli_error":
+        items.insert(-1, event("error", error={"message": "native tool runner failed"}))
+    elif failure == "refusal_block":
+        items[1]["message"]["content"].append({"type": "refusal", "refusal": "denied"})
+    elif failure == "after_result":
+        items.append(event("assistant", message={"content": []}))
+    elif failure == "missing_init":
+        items.pop(0)
+    else:
+        items[-1]["is_error"] = True
+    parsed = cc.summarize_trace("\n".join(json.dumps(item) for item in items), 0)
+    assert parsed["status"] != "ok"
+
+
+@pytest.mark.parametrize(
+    "kind", ["server_tool_use", "mcp_tool_use", "web_fetch_tool_result"]
+)
+def test_trace_accepts_native_tool_block_types(kind):
+    body = trace(tool="arbitrary_tool").replace(
+        '"type": "tool_use"', json.dumps("type") + ": " + json.dumps(kind)
+    )
+    parsed = cc.summarize_trace(body, 0)
+    assert parsed["status"] == "ok"
+    assert parsed["tool_calls"][0]["type"] == kind
+
+
+def test_nonstream_native_search_helper_is_transparent(tmp_path):
+    async def check():
+        response_body = {
+            "id": "search_message",
+            "type": "message",
+            "role": "assistant",
+            "model": "test-model",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 8, "output_tokens": 12},
+            "content": [
+                {
+                    "type": "server_tool_use",
+                    "id": "search_1",
+                    "name": "web_search",
+                    "input": {"query": "science"},
+                }
+            ],
+        }
+        upstream = FakeHTTPResponse(body=json.dumps(response_body))
+        upstream.headers["Content-Type"] = "application/json"
+        session = FakeSession(upstream)
+        body = {
+            "model": "test-model",
+            "max_tokens": 8192,
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "stream": False,
+        }
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with (
+                aiohttp.ClientSession() as client,
+                client.post(
+                    proxy.url + "/v1/messages",
+                    json=body,
+                    headers={"x-api-key": proxy.token},
+                ) as response,
+            ):
+                assert await response.json() == response_body
+            assert proxy.calls[0]["status"] == "ok"
+            assert proxy.calls[0]["response"] == response_body
+            assert proxy.calls[0]["request_kind"] == "tool_helper"
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("helper_model", ["test-model", "search-helper-model"])
+def test_native_search_helper_preserves_its_own_budget(tmp_path, helper_model):
+    async def check():
+        session = FakeSession(
+            FakeHTTPResponse(body=native_search_stream(model=helper_model))
+        )
+        body = {
+            "model": helper_model,
+            "max_tokens": 8192,
+            "output_config": {"effort": "low"},
+            "stream": True,
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "any"},
+            "messages": [
+                {"role": "user", "content": "Search for scientific references"}
+            ],
+        }
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with aiohttp.ClientSession() as client:
+                for _ in range(4):
+                    async with client.post(
+                        proxy.url + "/v1/messages",
+                        json=body,
+                        headers={"x-api-key": proxy.token},
+                    ) as response:
+                        await response.read()
+                        assert response.status == 200
+            assert len(session.calls) == 4
+            assert all(call[1]["json"] == body for call in session.calls)
+            assert all(call["request_kind"] == "tool_helper" for call in proxy.calls)
+            assert all(call["helper_evidence"] for call in proxy.calls)
+            assert all(
+                call["profile_enforcement"] == "isolated_web_helper"
+                for call in proxy.calls
+            )
+            assert not proxy.failure.is_set()
+            saved = json.loads((tmp_path / "api_004.json").read_text())
+            assert saved["payload"] == body
+            assert saved["tool_calls"][0]["type"] == "server_tool_use"
+            assert saved["actual_profile"] == {
+                "model": helper_model,
+                "max_tokens": 8192,
+                "effort": "low",
+            }
+            assert {"effort", "max_tokens"} <= set(saved["profile_mismatches"])
+
+    asyncio.run(check())
+
+
+def test_unrestricted_model_needs_no_search_keys_or_sandbox(
+    model_setup, monkeypatch, tmp_path
+):
+    monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
+    monkeypatch.delenv("JINA_API_KEY", raising=False)
+    model = model_setup()
+    cmd = model.command("system")
+    assert cmd[cmd.index("--tools") + 1] == "default"
+    assert cmd[cmd.index("--permission-mode") + 1] == "bypassPermissions"
+    assert not {
+        "--restricted",
+        "--allowedTools",
+        "--mcp-config",
+        "--max-turns",
+        "--no-chrome",
+        "--disable-slash-commands",
+    } & set(cmd)
+    assert model.config["tools_policy"] == "all_available"
+    assert model.config["native_tools"] is True
+    assert model.config["search_attempt_limit"] is None
+    assert model.config["host_filesystem_sandbox"] is False
 
 
 def test_search_quota_is_atomic_and_survives_server_restarts(tmp_path):
@@ -291,17 +523,14 @@ def question(model, doc_id=0, kwargs=None):
     )
 
 
-def test_command_disables_native_tools_and_turn_limit(model_setup, tmp_path):
+def test_command_enables_native_tools_without_turn_limit(model_setup, tmp_path):
     model = model_setup()
-    cmd = model.command(tmp_path, tmp_path / "quota.json", "system")
-    assert cmd[cmd.index("--tools") + 1] == ""
-    assert set(cmd[cmd.index("--allowedTools") + 1].split(",")) == ALLOWED_TOOLS
+    cmd = model.command("system")
+    assert cmd[cmd.index("--tools") + 1] == "default"
+    assert cmd[cmd.index("--permission-mode") + 1] == "bypassPermissions"
     assert "--max-turns" not in cmd and "--fallback-model" not in cmd
-    assert "--strict-mcp-config" in cmd and "--restricted" in cmd
+    assert "--restricted" not in cmd and "--mcp-config" not in cmd
     assert cmd[cmd.index("--setting-sources") + 1] == ""
-    mcp = json.loads(cmd[cmd.index("--mcp-config") + 1])
-    assert set(mcp["mcpServers"]) == {"sde_tools"}
-    assert str(tmp_path / "quota.json") in mcp["mcpServers"]["sde_tools"]["args"]
     assert (
         model.create_payload(question(model, kwargs={"max_tokens": 500}))["max_tokens"]
         == 500
@@ -445,6 +674,121 @@ class FakeSession:
         return self.response
 
 
+@pytest.mark.parametrize("failure", ["http", "tool_error"])
+def test_helper_failure_does_not_cancel_successful_main(
+    model_setup, monkeypatch, failure
+):
+    model = model_setup()
+    model.record_dir.mkdir()
+    if failure == "http":
+        helper_response = FakeHTTPResponse(status=524)
+        expected_status = "transport_failed"
+    else:
+        helper_response = FakeHTTPResponse(
+            body=json.dumps(
+                {
+                    "id": "search_message",
+                    "role": "assistant",
+                    "model": "test-model",
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 1},
+                    "content": [
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "search_1",
+                            "content": {
+                                "type": "web_search_tool_result_error",
+                                "error_code": "unavailable",
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        helper_response.headers["Content-Type"] = "application/json"
+        expected_status = "tool_error"
+
+    class Session:
+        def post(self, url, **kwargs):
+            return (
+                helper_response if kwargs["json"].get("tools") else FakeHTTPResponse()
+            )
+
+    script = """import json,os,sys,urllib.request,urllib.error
+sys.stdin.read()
+def call(body):
+ request=urllib.request.Request(os.environ['ANTHROPIC_BASE_URL']+'/v1/messages',data=json.dumps(body).encode(),headers={'x-api-key':os.environ['ANTHROPIC_AUTH_TOKEN'],'Content-Type':'application/json'})
+ try:
+  with urllib.request.urlopen(request,timeout=3) as response: response.read()
+ except urllib.error.HTTPError as exc: exc.read()
+call({'model':'test-model','max_tokens':8192,'tools':[{'type':'web_search_20250305','name':'web_search'}]})
+call({'model':'test-model','max_tokens':128000,'output_config':{'effort':'max'}})
+print(TRACE,end='')
+""".replace("TRACE", repr(trace()))
+    monkeypatch.setattr(model, "command", lambda *a: [sys.executable, "-c", script])
+    attempt = {
+        "record_path": str(model.record_dir / "helper_record.json"),
+        "attempt": 1,
+        "started_at": 0,
+        "status": "running",
+    }
+    asyncio.run(
+        model.request_once(
+            Session(), model.create_payload(question(model)), "fake-key", attempt
+        )
+    )
+    assert attempt["status"] == "ok"
+    assert attempt["answer"] == "<answer>A</answer>"
+    assert [call["status"] for call in attempt["api_calls"]] == [expected_status, "ok"]
+    assert attempt["helper_calls"][0]["status"] == expected_status
+    assert attempt["helper_calls"][0]["fatal"] is False
+
+
+@pytest.mark.parametrize("code", [401, 403])
+def test_helper_auth_failure_is_fatal(tmp_path, code):
+    async def check():
+        session = FakeSession(FakeHTTPResponse(status=code))
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with aiohttp.ClientSession() as client:
+                async with client.post(
+                    proxy.url + "/v1/messages",
+                    headers={"x-api-key": proxy.token},
+                    json={
+                        "model": "test-model",
+                        "max_tokens": 8192,
+                        "tools": [
+                            {"type": "web_search_20250305", "name": "web_search"}
+                        ],
+                    },
+                ) as response:
+                    await response.read()
+                    assert response.status == code
+                assert proxy.failure.is_set()
+                assert proxy.calls[0]["fatal"] is True
+                async with client.post(
+                    proxy.url + "/v1/messages",
+                    headers={"x-api-key": proxy.token},
+                    json={
+                        "model": "test-model",
+                        "max_tokens": 128000,
+                        "output_config": {"effort": "max"},
+                    },
+                ) as response:
+                    assert response.status == 409
+            assert len(session.calls) == 1
+
+    asyncio.run(check())
+
+
 def test_loopback_proxy_preserves_payload_and_redacts_raw(tmp_path):
     async def check():
         session = FakeSession(
@@ -458,6 +802,14 @@ def test_loopback_proxy_preserves_payload_and_redacts_raw(tmp_path):
             "output_config": {"effort": "max"},
             "messages": [{"role": "user", "content": "question"}],
             "system": "exact system",
+            "tools": [
+                {"name": "Bash", "input_schema": {"type": "object"}},
+                {"name": "Write", "input_schema": {"type": "object"}},
+                {"name": "WebFetch", "input_schema": {"type": "object"}},
+                {"type": "web_search_20250305", "name": "web_search"},
+                {"name": "arbitrary_plugin", "input_schema": {"type": "object"}},
+            ],
+            "tool_choice": {"type": "auto"},
         }
         async with MessagesProxy(
             session,
@@ -469,14 +821,16 @@ def test_loopback_proxy_preserves_payload_and_redacts_raw(tmp_path):
             tmp_path,
             [],
         ) as proxy:
-            async with aiohttp.ClientSession() as client:
-                async with client.post(
+            async with (
+                aiohttp.ClientSession() as client,
+                client.post(
                     proxy.url + "/v1/messages",
                     json=body,
                     headers={"x-api-key": proxy.token},
-                ) as response:
-                    raw = await response.text()
-                    assert response.status == 200 and "fake-key" in raw
+                ) as response,
+            ):
+                raw = await response.text()
+                assert response.status == 200 and "fake-key" in raw
             assert (
                 session.calls[0][0] == "https://provider.invalid/anthropic/v1/messages"
             )
@@ -496,7 +850,6 @@ def test_loopback_proxy_preserves_payload_and_redacts_raw(tmp_path):
         ("model", "other", "model_mismatch"),
         ("max_tokens", 256, "budget_mismatch"),
         ("output_config", {"effort": "high"}, "budget_mismatch"),
-        ("tools", [{"name": "Bash"}], "tool_profile_mismatch"),
     ],
 )
 def test_proxy_rejects_profile_mismatch_without_upstream(
@@ -520,18 +873,306 @@ def test_proxy_rejects_profile_mismatch_without_upstream(
             tmp_path,
             [],
         ) as proxy:
-            async with aiohttp.ClientSession() as client:
-                async with client.post(
+            async with (
+                aiohttp.ClientSession() as client,
+                client.post(
                     proxy.url + "/v1/messages",
                     json=body,
                     headers={"x-api-key": proxy.token},
-                ) as response:
-                    assert response.status == 400
+                ) as response,
+            ):
+                assert response.status == 400
             assert not session.calls
             assert proxy.calls[0]["status"] == status
+            assert proxy.calls[0]["profile_enforcement"] == "initial_main_strict"
+            assert proxy.calls[0]["fatal"] is True
             assert proxy.failure.is_set()
 
     asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    "followup",
+    [
+        {
+            "max_tokens": 8192,
+            "output_config": {"effort": "low"},
+            "tools": [{"name": "Agent"}],
+        },
+        {"max_tokens": 4096},
+        {"max_tokens": 256000, "output_config": {"effort": "high"}},
+    ],
+)
+def test_native_followup_budget_differences_are_forwarded_and_recorded(
+    tmp_path, followup
+):
+    async def check():
+        session = FakeSession()
+        initial = {
+            "model": "test-model",
+            "max_tokens": 128000,
+            "output_config": {"effort": "max"},
+        }
+        later = {"model": "test-model", **followup}
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with aiohttp.ClientSession() as client:
+                for body in [initial, later]:
+                    async with client.post(
+                        proxy.url + "/v1/messages",
+                        json=body,
+                        headers={"x-api-key": proxy.token},
+                    ) as response:
+                        await response.read()
+                        assert response.status == 200
+            assert [call[1]["json"] for call in session.calls] == [initial, later]
+            assert proxy.calls[0]["profile_enforcement"] == "initial_main_strict"
+            assert proxy.calls[1]["request_kind"] == "main"
+            assert proxy.calls[1]["helper_evidence"] == []
+            assert proxy.calls[1]["profile_enforcement"] == "native_followup"
+            assert proxy.calls[1]["profile_mismatches"] == ["max_tokens", "effort"]
+            assert not proxy.failure.is_set()
+            saved = json.loads((tmp_path / "api_002.json").read_text())
+            assert saved["actual_profile"]["max_tokens"] == later["max_tokens"]
+            assert saved["payload"] == later
+            assert saved["profile_enforcement"] == "native_followup"
+
+    asyncio.run(check())
+
+
+def test_web_helper_and_count_tokens_do_not_consume_initial_main_check(tmp_path):
+    async def check():
+        session = FakeSession()
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with aiohttp.ClientSession() as client:
+                for path, body, expected_status in [
+                    ("/v1/messages/count_tokens", {"model": "test-model"}, 200),
+                    (
+                        "/v1/messages",
+                        {
+                            "model": "test-model",
+                            "max_tokens": 8192,
+                            "tools": [
+                                {"type": "web_search_20250305", "name": "web_search"}
+                            ],
+                        },
+                        200,
+                    ),
+                    (
+                        "/v1/messages",
+                        {
+                            "model": "test-model",
+                            "max_tokens": 8192,
+                            "output_config": {"effort": "low"},
+                        },
+                        400,
+                    ),
+                    (
+                        "/v1/messages",
+                        {
+                            "model": "test-model",
+                            "max_tokens": 128000,
+                            "output_config": {"effort": "max"},
+                        },
+                        409,
+                    ),
+                ]:
+                    async with client.post(
+                        proxy.url + path, json=body, headers={"x-api-key": proxy.token}
+                    ) as response:
+                        await response.read()
+                        assert response.status == expected_status
+            assert len(session.calls) == 2
+            assert proxy.calls[-1]["profile_enforcement"] == "initial_main_strict"
+            assert proxy.calls[-1]["status"] == "budget_mismatch"
+            assert proxy.failure.is_set()
+
+    asyncio.run(check())
+
+
+def test_native_followup_cannot_change_fixed_model(tmp_path):
+    async def check():
+        session = FakeSession()
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with aiohttp.ClientSession() as client:
+                for body, expected_status in [
+                    (
+                        {
+                            "model": "test-model",
+                            "max_tokens": 128000,
+                            "output_config": {"effort": "max"},
+                        },
+                        200,
+                    ),
+                    (
+                        {
+                            "model": "other-model",
+                            "max_tokens": 8192,
+                            "output_config": {"effort": "low"},
+                        },
+                        400,
+                    ),
+                ]:
+                    async with client.post(
+                        proxy.url + "/v1/messages",
+                        json=body,
+                        headers={"x-api-key": proxy.token},
+                    ) as response:
+                        await response.read()
+                        assert response.status == expected_status
+            assert len(session.calls) == 1
+            assert proxy.calls[-1]["profile_enforcement"] == "native_followup"
+            assert proxy.calls[-1]["status"] == "model_mismatch"
+            assert proxy.calls[-1]["fatal"] is True
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    "tools",
+    [
+        [],
+        [{"name": "WebSearch"}],
+        [{"name": "Bash"}, {"type": "web_search_20250305", "name": "web_search"}],
+    ],
+)
+def test_lower_budget_and_search_mentions_are_not_helper_evidence(tmp_path, tools):
+    async def check():
+        session = FakeSession()
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with (
+                aiohttp.ClientSession() as client,
+                client.post(
+                    proxy.url + "/v1/messages",
+                    headers={"x-api-key": proxy.token},
+                    json={
+                        "model": "test-model",
+                        "max_tokens": 8192,
+                        "output_config": {"effort": "low"},
+                        "tools": tools,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "WebSearch search helper request",
+                            }
+                        ],
+                    },
+                ) as response,
+            ):
+                assert response.status == 400
+            assert proxy.calls[0]["request_kind"] == "main"
+            assert proxy.calls[0]["status"] == "budget_mismatch"
+            assert not session.calls
+
+    asyncio.run(check())
+
+
+def test_search_declaration_does_not_hide_wrong_primary_model(tmp_path):
+    async def check():
+        session = FakeSession()
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with (
+                aiohttp.ClientSession() as client,
+                client.post(
+                    proxy.url + "/v1/messages",
+                    headers={"x-api-key": proxy.token},
+                    json={
+                        "model": "other-model",
+                        "max_tokens": 128000,
+                        "output_config": {"effort": "max"},
+                        "tools": [
+                            {"name": "Agent"},
+                            {"type": "web_search_20250305", "name": "web_search"},
+                        ],
+                    },
+                ) as response,
+            ):
+                assert response.status == 400
+            assert proxy.calls[0]["status"] == "model_mismatch"
+            assert proxy.calls[0]["request_kind"] == "main"
+            assert proxy.calls[0]["profile_mismatches"] == ["model"]
+            assert not session.calls
+
+    asyncio.run(check())
+
+
+def test_duplicate_terminal_has_specific_diagnostic():
+    parsed = cc.summarize_trace(
+        trace() + json.dumps(event("result", subtype="success", result="B")), 0
+    )
+    assert parsed["status"] == "protocol_error"
+    assert parsed["error"] == "Multiple terminal results"
+
+
+def test_scientific_preflight_records_versions_without_sandbox(monkeypatch):
+    packages = {
+        name: "test-version"
+        for name in ["numpy", "scipy", "sympy", "rdkit", "requests"]
+    }
+    calls = []
+
+    def output(command, **kwargs):
+        calls.append(command)
+        return (
+            "Python test-version"
+            if command[-1] == "--version"
+            else json.dumps(packages)
+        )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Sandbox preflight must not run")
+
+    monkeypatch.setattr(cc.subprocess, "check_output", output)
+    monkeypatch.setattr(cc.subprocess, "run", forbidden)
+    assert cc.validate_tool_runtime(Path(sys.executable)) == {
+        "compute_packages": packages,
+        "tool_python_version": "Python test-version",
+    }
+    assert len(calls) == 2
 
 
 def test_failed_upstream_cannot_trigger_hidden_cli_retry(tmp_path):
@@ -585,12 +1226,36 @@ def test_isolated_cli_subprocess_capture_and_environment(model_setup, monkeypatc
     )
     monkeypatch.setattr(model, "command", lambda *a: [sys.executable, "-c", script])
     monkeypatch.setenv("DONT_LEAK", "inherited-secret")
+    original_exec = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        work = kwargs["cwd"]
+        env = kwargs["env"]
+        assert not work.is_relative_to(Path(__file__).resolve().parents[1])
+        assert not list(work.glob("**/CLAUDE.md"))
+        assert not list(work.glob("**/AGENTS.md"))
+        assert list(Path(env["CLAUDE_CONFIG_DIR"]).iterdir()) == []
+        assert Path(env["HOME"]).is_relative_to(work)
+        assert str(model.tool_python.parent) in env["PATH"].split(":")
+        assert env["ANTHROPIC_SMALL_FAST_MODEL"] == model.model
+        assert (
+            not {"DONT_LEAK", "SERPAPI_API_KEY", "JINA_API_KEY", "ANTHROPIC_API_KEY"}
+            & env.keys()
+        )
+        return await original_exec(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     original = MessagesProxy.__init__
 
     def init(proxy, *args, **kwargs):
         original(proxy, *args, **kwargs)
         proxy.calls.append(
-            {"path": "/v1/messages", "status": "ok", "payload": {"model": "test-model"}}
+            {
+                "path": "/v1/messages",
+                "request_kind": "main",
+                "status": "ok",
+                "payload": {"model": "test-model"},
+            }
         )
 
     monkeypatch.setattr(MessagesProxy, "__init__", init)
@@ -695,12 +1360,12 @@ def test_unclosed_content_block_is_not_complete():
     assert inspect_stream(body, "test-model")["status"] == "transport_failed"
 
 
-def test_proxy_rejects_native_tool_response():
+def test_proxy_accepts_native_tool_response():
     body = stream(closed=False)
     body += 'data: {"type":"content_block_start", "index":0, "content_block":{"type":"tool_use", "id":"t1", "name":"WebSearch", "input":{}}}\n\n'
     body += 'data: {"type":"content_block_stop", "index":0}\n\n'
     body += 'data: {"type":"message_stop"}\n\n'
-    assert inspect_stream(body, "test-model")["status"] == "tool_profile_mismatch"
+    assert inspect_stream(body, "test-model")["status"] == "ok"
 
 
 def test_interrupted_attempt_consumes_budget_and_preserves_search_count(
@@ -732,16 +1397,26 @@ def test_interrupted_attempt_consumes_budget_and_preserves_search_count(
 
 def test_config_has_cli_tools_and_parser_identity(model_setup):
     model = model_setup()
-    for name in ("sde_claude_code", "sde_cc_proxy", "sde_tools", "sde_sandbox"):
+    for name in ("sde_claude_code", "sde_cc_proxy"):
         assert len(model.config[name + "_sha256"]) == 64
     assert len(model.config["stream_sha256"]) == 64
     assert len(model.config["messages_parser_sha256"]) == 64
     assert model.config["agent_turn_limit"] is None
-    assert model.config["native_tools"] is False
-    assert model.config["search_attempt_limit"] == 3
+    assert model.config["tools_policy"] == "all_available"
+    assert model.config["native_tools"] is True
+    assert model.config["search_attempt_limit"] is None
+    assert "sde_sandbox_sha256" not in model.config
+    assert (
+        model.config["budget_enforcement"]
+        == "first_main_strict_native_followups_record_only"
+    )
+    assert (
+        model.config["unclassified_requests_policy"]
+        == "require_primary_model_without_inferring_followup_purpose"
+    )
 
 
-def test_runtime_version_and_isolation_are_fail_closed(tmp_path, monkeypatch):
+def test_runtime_version_and_packages_are_fail_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(cc.subprocess, "check_output", lambda *a, **k: "other-version")
     with pytest.raises(ValueError, match="version"):
         cc.validate_runtime(
@@ -751,11 +1426,11 @@ def test_runtime_version_and_isolation_are_fail_closed(tmp_path, monkeypatch):
         cc.subprocess, "check_output", lambda *a, **k: "desired-version"
     )
 
-    class Failure:
-        returncode = 1
+    def missing_packages(*args):
+        raise ValueError("missing scientific package")
 
-    monkeypatch.setattr(cc.subprocess, "run", lambda *a, **k: Failure())
-    with pytest.raises(ValueError, match="isolation"):
+    monkeypatch.setattr(cc, "validate_tool_runtime", missing_packages)
+    with pytest.raises(ValueError, match="scientific package"):
         cc.validate_runtime(
             Path(sys.executable), "desired-version", Path(sys.executable)
         )

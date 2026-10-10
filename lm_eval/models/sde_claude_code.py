@@ -1,10 +1,11 @@
-"""Recorded Claude Code agent evaluation with shared SDE MCP tools."""
+"""Recorded Claude Code agent evaluation with all available native tools."""
+
+from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
 import os
-import shlex
 import signal
 import subprocess
 import tempfile
@@ -14,7 +15,7 @@ from typing import Any
 
 from lm_eval.api.instance import GenerationResult, Instance
 from lm_eval.api.registry import register_model
-from lm_eval.models.sde_cc_proxy import ALLOWED_TOOLS, MessagesProxy, redact
+from lm_eval.models.sde_cc_proxy import MessagesProxy, redact
 from lm_eval.models.sde_chat import SDEChatCompletion
 from lm_eval.models.sde_stream import stream_sha256
 
@@ -44,33 +45,6 @@ def validate_runtime(
 
 
 def validate_tool_runtime(python: Path) -> dict[str, Any]:
-    sandbox = Path(__file__).with_name("sde_sandbox.py")
-    probe = """import socket
-from pathlib import Path
-try:
-    Path('/etc/passwd').read_text()
-except PermissionError:
-    pass
-else:
-    raise RuntimeError('filesystem isolation failed')
-try:
-    socket.socket()
-except PermissionError:
-    pass
-else:
-    raise RuntimeError('network isolation failed')
-"""
-    with tempfile.TemporaryDirectory(prefix="sde-compute-probe-") as work:
-        command = f"{shlex.quote(str(python))} -c {shlex.quote(probe)}"
-        checked = subprocess.run(
-            [str(python), str(sandbox), work, command],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env={"PATH": f"{python.parent}:/usr/bin:/bin", "LANG": "C.UTF-8"},
-        )
-    if checked.returncode:
-        raise ValueError("Linux computation isolation preflight failed")
     packages = subprocess.check_output(
         [
             str(python),
@@ -93,6 +67,7 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
     init = None
     tools = []
     refusal = False
+    errors = []
     stop_reason = None
     try:
         for line in body.splitlines():
@@ -100,10 +75,18 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
                 continue
             event = json.loads(line)
             if not isinstance(event, dict):
-                raise ValueError("Non-object trace event")
-            if event.get("type") == "result":
-                if final is not None:
+                raise TypeError("Non-object trace event")
+            if final is not None:
+                if event.get("type") == "result":
                     raise ValueError("Multiple terminal results")
+                raise ValueError("Event after terminal result")
+            if (
+                event.get("type") == "error"
+                or event.get("error")
+                or (event.get("type") == "system" and event.get("subtype") == "error")
+            ):
+                errors.append(event)
+            if event.get("type") == "result":
                 final = event
             elif event.get("type") == "system" and event.get("subtype") == "init":
                 if init is not None:
@@ -116,21 +99,19 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
                     refusal = refusal or stop_reason == "refusal"
             elif event.get("type") == "assistant":
                 for block in event.get("message", {}).get("content", []):
-                    if block.get("type") == "tool_use":
+                    if "tool" in block.get("type", ""):
                         tools.append(block)
+                    refusal = refusal or block.get("type") == "refusal"
         answer = (final or {}).get("result", "")
         if not isinstance(answer, str):
-            raise ValueError("Non-text CLI result")
+            raise TypeError("Non-text CLI result")
         status = "transport_failed"
-        if any(t.get("name") not in ALLOWED_TOOLS | {"EndConversation"} for t in tools):
-            status = "tool_profile_mismatch"
-        elif (
+        if (
             init is None
             or not isinstance(init.get("tools"), list)
-            or not ALLOWED_TOOLS <= set(init["tools"])
-            or set(init["tools"]) - ALLOWED_TOOLS - {"EndConversation"}
+            or any(not isinstance(tool, str) for tool in init["tools"])
         ):
-            status = "tool_profile_mismatch"
+            status = "protocol_error"
         elif refusal or (final or {}).get("stop_reason") == "refusal":
             status = "refusal"
         elif stop_reason == "max_tokens":
@@ -143,6 +124,8 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
             final
             and final.get("subtype") == "success"
             and not final.get("is_error")
+            and not final.get("errors")
+            and not errors
             and returncode == 0
         ):
             status = "ok" if answer.strip() else "empty"
@@ -152,6 +135,7 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
             "final": final,
             "init": init,
             "tool_calls": tools,
+            "errors": errors,
             "returncode": returncode,
         }
     except (ValueError, TypeError, AttributeError, KeyError) as exc:
@@ -167,10 +151,10 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
 
 
 async def stop_process(proc: Any) -> None:
-    # Kill the entire question process group, including MCP and compute children.
+    # Kill the entire question process group, including native tool children.
     try:
         os.killpg(proc.pid, signal.SIGTERM)
-        # Give the MCP server time to kill its isolated compute process group.
+        # Give tool children time to exit before forcing termination.
         await asyncio.sleep(0.25)
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -228,9 +212,6 @@ class SDEClaudeCode(SDEChatCompletion):
         )
         if effort not in ("low", "medium", "high", "xhigh", "max"):
             raise ValueError("Invalid Claude Code effort")
-        for name in ("SERPAPI_API_KEY", "JINA_API_KEY"):
-            if not os.environ.get(name, "").strip():
-                raise ValueError(f"Tool key not found in {name}")
         self.claude = Path(claude_bin).resolve()
         self.tool_python = Path(tool_python).absolute()
         self.node = Path(node_bin).absolute() if node_bin else None
@@ -247,14 +228,19 @@ class SDEClaudeCode(SDEChatCompletion):
             claude_bin=str(self.claude),
             tool_python=str(self.tool_python),
             **runtime,
-            search_backend="serpapi",
-            read_backend="jina",
-            search_attempt_limit=3,
-            native_tools=False,
+            search_backend="native",
+            read_backend="native",
+            tools_policy="all_available",
+            search_attempt_limit=None,
+            native_tools=True,
+            host_filesystem_sandbox=False,
+            helper_budget_evidence="exclusive_native_server_web_tools",
+            budget_enforcement="first_main_strict_native_followups_record_only",
+            unclassified_requests_policy="require_primary_model_without_inferring_followup_purpose",
             agent_turn_limit=None,
             system_append=SYSTEM,
         )
-        for name in ("sde_claude_code", "sde_cc_proxy", "sde_tools", "sde_sandbox"):
+        for name in ("sde_claude_code", "sde_cc_proxy"):
             self.config[f"{name}_sha256"] = hashlib.sha256(
                 Path(__file__).with_name(name + ".py").read_bytes()
             ).hexdigest()
@@ -301,20 +287,7 @@ class SDEClaudeCode(SDEChatCompletion):
             "effort": self.config["effort"],
         }
 
-    def command(self, directory: Path, quota: Path, system: str) -> list[str]:
-        mcp = {
-            "mcpServers": {
-                "sde_tools": {
-                    "command": str(self.tool_python),
-                    "args": [
-                        str(Path(__file__).with_name("sde_tools.py")),
-                        str(directory / "work/compute"),
-                        str(quota),
-                        str(directory / "tools.jsonl"),
-                    ],
-                }
-            }
-        }
+    def command(self, system: str) -> list[str]:
         return [
             str(self.claude),
             "-p",
@@ -322,20 +295,12 @@ class SDEClaudeCode(SDEChatCompletion):
             self.model,
             "--effort",
             self.config["effort"],
-            "--restricted",
-            "--strict-mcp-config",
-            "--mcp-config",
-            json.dumps(mcp),
             "--setting-sources",
             "",
-            "--disable-slash-commands",
-            "--no-chrome",
             "--permission-mode",
-            "dontAsk",
+            "bypassPermissions",
             "--tools",
-            "",
-            "--allowedTools",
-            ",".join(sorted(ALLOWED_TOOLS)),
+            "default",
             "--output-format",
             "stream-json",
             "--include-partial-messages",
@@ -351,16 +316,14 @@ class SDEClaudeCode(SDEChatCompletion):
         record = Path(attempt["record_path"])
         directory = record.with_suffix(f".attempt{attempt['attempt']:02}.cc")
         directory.mkdir(exist_ok=False)
-        work = directory / "work"
-        for name in ("home/.claude", "tmp", "compute"):
+        workspace = tempfile.TemporaryDirectory(prefix="sde-cc-question-")
+        work = Path(workspace.name)
+        for name in ("home/.claude", "tmp"):
             (work / name).mkdir(parents=True)
-        quota = record.with_suffix(".search.json")
-        secrets = [key, os.environ["SERPAPI_API_KEY"], os.environ["JINA_API_KEY"]]
+        secrets = [key]
         attempt.update(
             trace_path=str(directory / "trace.jsonl"),
             stderr_path=str(directory / "stderr.log"),
-            tools_path=str(directory / "tools.jsonl"),
-            search_quota_path=str(quota),
         )
         proc = None
         captures: list[asyncio.Task] = []
@@ -377,7 +340,7 @@ class SDEClaudeCode(SDEChatCompletion):
         )
         try:
             async with proxy:
-                cmd = self.command(directory, quota, payload["system_append"])
+                cmd = self.command(payload["system_append"])
                 attempt["command"] = cmd
                 env = {
                     "HOME": str(work / "home"),
@@ -391,14 +354,13 @@ class SDEClaudeCode(SDEChatCompletion):
                     "ANTHROPIC_DEFAULT_OPUS_MODEL": self.model,
                     "ANTHROPIC_DEFAULT_SONNET_MODEL": self.model,
                     "ANTHROPIC_DEFAULT_HAIKU_MODEL": self.model,
+                    "ANTHROPIC_SMALL_FAST_MODEL": self.model,
                     "CLAUDE_CODE_SUBAGENT_MODEL": self.model,
                     "CLAUDE_CODE_EFFORT_LEVEL": self.config["effort"],
                     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(payload["max_tokens"]),
                     "DISABLE_AUTOUPDATER": "1",
                     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
                     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
-                    "SERPAPI_API_KEY": os.environ["SERPAPI_API_KEY"],
-                    "JINA_API_KEY": os.environ["JINA_API_KEY"],
                 }
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -461,13 +423,23 @@ class SDEClaudeCode(SDEChatCompletion):
                 await stop_process(proc)
             if captures:
                 await asyncio.gather(*captures, return_exceptions=True)
+            workspace.cleanup()
             attempt["api_calls"] = json.loads(
                 redact(
                     json.dumps(proxy.calls, ensure_ascii=False), secrets + [proxy.token]
                 )
             )
-            main = [call for call in proxy.calls if call["path"] == "/v1/messages"]
-            failed = [call for call in proxy.calls if call["status"] != "ok"]
+            attempt["helper_calls"] = [
+                call
+                for call in attempt["api_calls"]
+                if call.get("request_kind") == "tool_helper"
+            ]
+            main = [
+                call
+                for call in proxy.calls
+                if call["path"] == "/v1/messages" and call.get("request_kind") == "main"
+            ]
+            failed = [call for call in proxy.calls if call.get("fatal")]
             if failed and not cancelled:
                 attempt["status"] = failed[0]["status"]
                 if failed[0].get("http_status") in (401, 403):
@@ -493,10 +465,9 @@ class SDEClaudeCode(SDEChatCompletion):
                     for k in (
                         "trace_path",
                         "stderr_path",
-                        "tools_path",
-                        "search_quota_path",
                         "returncode",
                         "api_calls",
+                        "helper_calls",
                     )
                 }
                 for attempt in record["attempts"]

@@ -16,13 +16,10 @@ from lm_eval.api.instance import Instance
 from lm_eval.api.task import ConfigurableTask
 from lm_eval.evaluator import evaluate
 from lm_eval.models import sde_codex as cx
-from lm_eval.models.sde_cc_proxy import ALLOWED_TOOLS
 from lm_eval.models.sde_codex_proxy import (
-    FUNCTIONS,
     ResponsesProxy,
     ToolProfileError,
     inspect_stream,
-    map_functions,
     mapped_line,
     prepare_payload,
 )
@@ -133,13 +130,13 @@ def test_normal_answer_not_selected_by_score(answer, status):
             trace(tool={"type": "command_execution", "command": "echo A"}),
             "<answer>A</answer>",
             0,
-            "tool_profile_mismatch",
+            "ok",
         ),
         (
             trace(tool={"type": "web_search"}),
             "<answer>A</answer>",
             0,
-            "tool_profile_mismatch",
+            "ok",
         ),
         (
             trace(
@@ -147,7 +144,7 @@ def test_normal_answer_not_selected_by_score(answer, status):
             ),
             "<answer>A</answer>",
             0,
-            "tool_profile_mismatch",
+            "ok",
         ),
     ],
 )
@@ -170,7 +167,7 @@ def test_shared_mcp_trace_is_allowed():
     "body,status",
     [
         (stream(function="mcp__sde_tools__web_search"), "ok"),
-        (stream(function="shell"), "protocol_error"),
+        (stream(function="shell"), "ok"),
         (stream(model="other"), "model_mismatch"),
         (stream(effort="low"), "budget_mismatch"),
         (stream(status="incomplete", reason="max_output_tokens"), "truncated"),
@@ -190,7 +187,10 @@ def test_provider_completion_and_profile(body, status):
 def test_no_tools_responses_still_rejects_functions():
     body = stream(function="mcp__sde_tools__run_shell")
     assert parse_stream(body)["stream_error"] is not None
-    assert parse_stream(body, allowed_tools=ALLOWED_TOOLS)["stream_error"] is None
+    assert (
+        parse_stream(body, allowed_tools={"mcp__sde_tools__run_shell"})["stream_error"]
+        is None
+    )
 
 
 def test_provider_output_budget_echo_is_not_assumed():
@@ -238,12 +238,12 @@ def test_budget_and_tools_normalization_preserves_prompt_and_history():
     assert value["instructions"] == body["instructions"]
     assert value["input"][0] == body["input"][0]
     assert value["input"][-1] == body["input"][-1]
-    assert value["input"][1]["name"] == "mcp__sde_tools__web_search"
+    assert value["input"][1] == original["input"][1]
     assert value["input"][1]["arguments"] == '{"query":"x"}'
-    assert value["max_output_tokens"] == 128000 and value["tools"] == FUNCTIONS
+    assert value["max_output_tokens"] == 128000 and value["tools"] == original["tools"]
 
 
-def test_inline_tool_declarations_are_removed_without_changing_history():
+def test_inline_tool_declarations_are_preserved_without_changing_history():
     body = payload()
     declaration = {
         "type": "additional_tools",
@@ -255,8 +255,8 @@ def test_inline_tool_declarations_are_removed_without_changing_history():
     original = copy.deepcopy(body)
     value = prepare_payload(body, "test-model", "max", 128000)
     assert body == original
-    assert value["input"] == original["input"][1:]
-    assert value["tools"] == FUNCTIONS
+    assert value["input"] == original["input"]
+    assert value["tools"] == original["tools"]
 
 
 @pytest.mark.parametrize(
@@ -265,16 +265,15 @@ def test_inline_tool_declarations_are_removed_without_changing_history():
         ("model", "other", "model_mismatch"),
         ("reasoning", {"effort": "high"}, "budget_mismatch"),
         ("stream", False, "protocol_error"),
-        ("input", [{"type": "tool_search_call"}], "tool_profile_mismatch"),
         (
             "input",
             [{"type": "additional_tools", "role": "user", "tools": []}],
-            "tool_profile_mismatch",
+            "protocol_error",
         ),
         (
             "input",
             [{"type": "additional_tools", "role": "developer", "tools": "bad"}],
-            "tool_profile_mismatch",
+            "protocol_error",
         ),
         (
             "input",
@@ -283,15 +282,15 @@ def test_inline_tool_declarations_are_removed_without_changing_history():
                     "type": "additional_tools",
                     "role": "developer",
                     "tools": [],
-                    "content": "must stay",
+                    "content": 5,
                 }
             ],
-            "tool_profile_mismatch",
+            "protocol_error",
         ),
         (
             "input",
             [{"type": "function_call", "name": "shell"}],
-            "tool_profile_mismatch",
+            "protocol_error",
         ),
     ],
 )
@@ -312,21 +311,20 @@ def test_namespace_roundtrip_and_unicode_line():
     original = copy.deepcopy(item)
     line = mapped_line(b"data: " + json.dumps({"item": item}).encode())
     value = json.loads(line[5:])["item"]
-    assert value["namespace"] == "mcp__sde_tools" and value["name"] == "read_url"
-    map_functions(value, False)
+    assert value == original
     assert value == original
 
 
 @pytest.mark.parametrize(
     "kind", ["function_call", "custom_tool_call", "web_search_call"]
 )
-def test_native_tool_event_blocked_before_cli_receives_it(kind):
+def test_native_tool_event_preserved_before_cli_receives_it(kind):
     event = {
         "type": "response.output_item.added",
         "item": {"type": kind, "name": "apply_patch"},
     }
-    with pytest.raises(ToolProfileError):
-        mapped_line(b"data: " + json.dumps(event).encode())
+    raw = b"data: " + json.dumps(event).encode()
+    assert mapped_line(raw) == raw
 
 
 @pytest.mark.parametrize("name,namespace", [(None, "mcp__sde_tools"), ("run_shell", 1)])
@@ -382,64 +380,61 @@ def test_websocket_tool_history_materialized_and_recorded(tmp_path):
         async with (
             local_provider(upstream) as endpoint,
             aiohttp.ClientSession() as session,
-        ):
-            async with ResponsesProxy(
+            ResponsesProxy(
                 session, endpoint, "test-model", "max", 128000, "fake", tmp_path, []
-            ) as proxy:
-                async with session.ws_connect(
-                    proxy.url + "/" + proxy.token + "/responses",
-                    headers={"Authorization": "Bearer " + proxy.token},
-                ) as channel:
-                    prewarm = {
-                        **payload(),
-                        "type": "response.create",
-                        "generate": False,
-                    }
-                    await channel.send_json(prewarm)
-                    events = await ws_response(channel)
-                    assert not seen and not proxy.calls
-                    assert events[-1]["response"]["output"] == []
-                    assert proxy.controls[0]["upstream_forwarded"] is False
-                    saved = json.loads((tmp_path / "control_001.json").read_text())
-                    assert saved["original_payload"] == prewarm
-                    first = {**payload(), "type": "response.create"}
-                    first.pop("stream")
-                    await channel.send_json(first)
-                    events = await ws_response(channel)
-                    call = events[-1]["response"]["output"][0]
-                    assert (
-                        call["namespace"] == "mcp__sde_tools"
-                        and call["name"] == "web_search"
-                    )
-                    second = {
-                        **first,
-                        "previous_response_id": "r1",
-                        "input": [
-                            {
-                                "type": "function_call_output",
-                                "call_id": "c1",
-                                "output": "5",
-                            }
-                        ],
-                    }
-                    await channel.send_json(second)
-                    events = await ws_response(channel)
-                    assert events[-1]["response"]["id"] == "r2"
-                assert [c["status"] for c in proxy.calls] == ["ok", "ok"]
-                assert proxy.calls[1]["original_payload"] == second
-                assert (
-                    "materialized_previous_response_history"
-                    in proxy.calls[1]["normalizations"]
-                )
-                assert all(c["cli_transport"] == "websocket" for c in proxy.calls)
-                assert seen[1]["input"][0] == payload()["input"][0]
-                assert seen[1]["input"][1]["name"] == "mcp__sde_tools__web_search"
-                assert seen[1]["input"][-1] == second["input"][0]
-                assert "previous_response_id" not in seen[1]
-                assert all(
-                    p["max_output_tokens"] == 128000 and p["tools"] == FUNCTIONS
-                    for p in seen
-                )
+            ) as proxy,
+        ):
+            async with session.ws_connect(
+                proxy.url + "/" + proxy.token + "/responses",
+                headers={"Authorization": "Bearer " + proxy.token},
+            ) as channel:
+                prewarm = {
+                    **payload(),
+                    "type": "response.create",
+                    "generate": False,
+                }
+                await channel.send_json(prewarm)
+                events = await ws_response(channel)
+                assert not seen and not proxy.calls
+                assert events[-1]["response"]["output"] == []
+                assert proxy.controls[0]["upstream_forwarded"] is False
+                saved = json.loads((tmp_path / "control_001.json").read_text())
+                assert saved["original_payload"] == prewarm
+                first = {**payload(), "type": "response.create"}
+                first.pop("stream")
+                await channel.send_json(first)
+                events = await ws_response(channel)
+                call = events[-1]["response"]["output"][0]
+                assert call["name"] == "mcp__sde_tools__web_search"
+                second = {
+                    **first,
+                    "previous_response_id": "r1",
+                    "input": [
+                        {
+                            "type": "function_call_output",
+                            "call_id": "c1",
+                            "output": "5",
+                        }
+                    ],
+                }
+                await channel.send_json(second)
+                events = await ws_response(channel)
+                assert events[-1]["response"]["id"] == "r2"
+            assert [c["status"] for c in proxy.calls] == ["ok", "ok"]
+            assert proxy.calls[1]["original_payload"] == second
+            assert (
+                "materialized_previous_response_history"
+                in proxy.calls[1]["normalizations"]
+            )
+            assert all(c["cli_transport"] == "websocket" for c in proxy.calls)
+            assert seen[1]["input"][0] == payload()["input"][0]
+            assert seen[1]["input"][1]["name"] == "mcp__sde_tools__web_search"
+            assert seen[1]["input"][-1] == second["input"][0]
+            assert "previous_response_id" not in seen[1]
+            assert all(
+                p["max_output_tokens"] == 128000 and p["tools"] == payload()["tools"]
+                for p in seen
+            )
 
     asyncio.run(run())
 
@@ -452,26 +447,25 @@ def test_websocket_unknown_previous_response_not_forwarded(tmp_path):
         async with (
             local_provider(upstream) as endpoint,
             aiohttp.ClientSession() as session,
-        ):
-            async with ResponsesProxy(
+            ResponsesProxy(
                 session, endpoint, "test-model", "max", 128000, "fake", tmp_path, []
-            ) as proxy:
-                async with session.ws_connect(
-                    proxy.url + "/" + proxy.token + "/responses",
-                    headers={"Authorization": "Bearer " + proxy.token},
-                ) as channel:
-                    await channel.send_json(
-                        {
-                            **payload(),
-                            "type": "response.create",
-                            "previous_response_id": "unknown",
-                        }
-                    )
-                    assert (await ws_response(channel))[-1]["type"] == "error"
-                assert (
-                    proxy.failure.is_set()
-                    and proxy.calls[0]["status"] == "protocol_error"
+            ) as proxy,
+        ):
+            async with session.ws_connect(
+                proxy.url + "/" + proxy.token + "/responses",
+                headers={"Authorization": "Bearer " + proxy.token},
+            ) as channel:
+                await channel.send_json(
+                    {
+                        **payload(),
+                        "type": "response.create",
+                        "previous_response_id": "unknown",
+                    }
                 )
+                assert (await ws_response(channel))[-1]["type"] == "error"
+            assert (
+                proxy.failure.is_set() and proxy.calls[0]["status"] == "protocol_error"
+            )
 
     asyncio.run(run())
 
@@ -497,8 +491,7 @@ def test_websocket_failure_saved_and_nested_retry_blocked(
         async with (
             local_provider(upstream) as endpoint,
             aiohttp.ClientSession() as session,
-        ):
-            async with ResponsesProxy(
+            ResponsesProxy(
                 session,
                 endpoint,
                 "test-model",
@@ -508,27 +501,26 @@ def test_websocket_failure_saved_and_nested_retry_blocked(
                 tmp_path,
                 [],
                 auth_mode="chatgpt",
-            ) as proxy:
-                url = proxy.url + "/" + proxy.token + "/responses"
-                headers = {"Authorization": "Bearer fake-access"}
-                async with session.ws_connect(url, headers=headers) as channel:
-                    await channel.send_json({**payload(), "type": "response.create"})
-                    assert (await ws_response(channel))[-1]["type"] == "error"
-                async with session.post(
-                    url, headers=headers, json=payload()
-                ) as response:
-                    assert response.status == 409
-                assert len(seen) == 1 and proxy.calls[0]["status"] == expected
-                assert proxy.calls[0]["http_status"] == status
-                saved = json.loads((tmp_path / "api_001.json").read_text())
-                assert saved["status"] == expected
-                assert "fake-access" not in json.dumps(saved)
+            ) as proxy,
+        ):
+            url = proxy.url + "/" + proxy.token + "/responses"
+            headers = {"Authorization": "Bearer fake-access"}
+            async with session.ws_connect(url, headers=headers) as channel:
+                await channel.send_json({**payload(), "type": "response.create"})
+                assert (await ws_response(channel))[-1]["type"] == "error"
+            async with session.post(url, headers=headers, json=payload()) as response:
+                assert response.status == 409
+            assert len(seen) == 1 and proxy.calls[0]["status"] == expected
+            assert proxy.calls[0]["http_status"] == status
+            saved = json.loads((tmp_path / "api_001.json").read_text())
+            assert saved["status"] == expected
+            assert "fake-access" not in json.dumps(saved)
 
     asyncio.run(run())
 
 
 @pytest.mark.parametrize("websocket", [False, True])
-def test_proxy_blocks_native_tool_before_output_is_forwarded(tmp_path, websocket):
+def test_proxy_preserves_native_tool_before_output_is_forwarded(tmp_path, websocket):
     async def run():
         async def upstream(req):
             return web.Response(
@@ -538,26 +530,24 @@ def test_proxy_blocks_native_tool_before_output_is_forwarded(tmp_path, websocket
         async with (
             local_provider(upstream) as endpoint,
             aiohttp.ClientSession() as session,
-        ):
-            async with ResponsesProxy(
+            ResponsesProxy(
                 session, endpoint, "test-model", "max", 128000, "fake", tmp_path, []
-            ) as proxy:
-                url = proxy.url + "/" + proxy.token + "/responses"
-                headers = {"Authorization": "Bearer " + proxy.token}
-                if websocket:
-                    async with session.ws_connect(url, headers=headers) as channel:
-                        await channel.send_json(
-                            {**payload(), "type": "response.create"}
-                        )
-                        received = json.dumps(await ws_response(channel))
-                else:
-                    async with session.post(
-                        url, headers=headers, json=payload()
-                    ) as response:
-                        received = await response.text()
-                assert "apply_patch" not in received
-                assert proxy.calls[0]["status"] == "tool_profile_mismatch"
-                assert "apply_patch" in (tmp_path / "api_001.sse").read_text()
+            ) as proxy,
+        ):
+            url = proxy.url + "/" + proxy.token + "/responses"
+            headers = {"Authorization": "Bearer " + proxy.token}
+            if websocket:
+                async with session.ws_connect(url, headers=headers) as channel:
+                    await channel.send_json({**payload(), "type": "response.create"})
+                    received = json.dumps(await ws_response(channel))
+            else:
+                async with session.post(
+                    url, headers=headers, json=payload()
+                ) as response:
+                    received = await response.text()
+            assert "apply_patch" in received
+            assert proxy.calls[0]["status"] == "ok"
+            assert "apply_patch" in (tmp_path / "api_001.sse").read_text()
 
     asyncio.run(run())
 
@@ -643,6 +633,123 @@ def test_api_profile_does_not_read_personal_auth(model, monkeypatch):
     assert m.get_api_key() == "private-DEEPSEEK_API_KEY"
 
 
+def test_native_tools_do_not_require_third_party_search_keys(model, monkeypatch):
+    monkeypatch.delenv("SERPAPI_API_KEY")
+    monkeypatch.delenv("JINA_API_KEY")
+    m = model()
+    assert m.config["tools_policy"] == "all_available"
+    assert m.config["search_attempt_limit"] is None
+    assert m.config["native_tools"] is True
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"type": "command_execution", "command": "python -c 'print(5)'"},
+        {"type": "web_search", "query": "Python documentation"},
+        {"type": "file_change", "changes": [{"path": "result.txt"}]},
+        {"type": "mcp_tool_call", "server": "provider", "tool": "search"},
+        {"type": "collab_agent_tool_call", "tool": "spawn_agent"},
+    ],
+)
+def test_native_tool_trace_keeps_complete_answer(item):
+    result = cx.summarize_trace(trace(tool=item), "<answer>A</answer>", 0)
+    assert result["status"] == "ok"
+    assert result["tool_calls"] == [item]
+
+
+def test_native_cli_command_opens_tools_without_loading_personal_settings(
+    model, tmp_path
+):
+    m = model()
+    proxy = ResponsesProxy(
+        None, "http://127.0.0.1:1", "test-model", "max", 128000, "fake", tmp_path, []
+    )
+    proxy.url = "http://127.0.0.1:2"
+    command = m.command(tmp_path, "prompt", proxy, tmp_path)
+    cfg = {
+        command[i + 1].split("=", 1)[0]: json.loads(command[i + 1].split("=", 1)[1])
+        for i, arg in enumerate(command[:-1])
+        if arg == "-c"
+    }
+    assert cfg["web_search"] == "live"
+    assert cfg["agents.enabled"] is True
+    assert "--dangerously-bypass-approvals-and-sandbox" in command
+    assert "--sandbox" not in command
+    assert not any("mcp_servers.sde_tools" in arg for arg in command)
+    disabled = {
+        command[i + 1] for i, arg in enumerate(command[:-1]) if arg == "--disable"
+    }
+    assert not disabled & {"shell_tool", "unified_exec", "code_mode", "multi_agent"}
+    assert "--ignore-user-config" in command
+
+
+def test_final_api_answer_is_attributed_to_root_not_last_child():
+    calls = [
+        {
+            "index": 1,
+            "status": "ok",
+            "answer": "parent answer",
+            "original_payload": {"client_metadata": {"thread_id": "parent"}},
+        },
+        {
+            "index": 2,
+            "status": "ok",
+            "answer": "child answer",
+            "original_payload": {"client_metadata": {"thread_id": "child"}},
+        },
+    ]
+    call, attribution = cx.final_api_call(calls, "parent", "parent answer")
+    assert call is calls[0] and attribution == "thread_id"
+    assert cx.final_api_call(calls, "parent", "child answer")[0] is None
+
+
+def test_flash_uses_provider_native_search_bridge_without_external_search_keys(
+    model, tmp_path, monkeypatch
+):
+    catalog = tmp_path / "catalog.json"
+    body = json.loads(catalog.read_text())
+    body["models"][0]["slug"] = "deepseek-flash"
+    catalog.write_text(json.dumps(body))
+    monkeypatch.delenv("SERPAPI_API_KEY")
+    monkeypatch.delenv("JINA_API_KEY")
+    m = model(model="deepseek-flash")
+    proxy = ResponsesProxy(
+        None,
+        "http://127.0.0.1:1",
+        "deepseek-flash",
+        "max",
+        128000,
+        "fake",
+        tmp_path,
+        [],
+    )
+    proxy.url = "http://127.0.0.1:2"
+    command = m.command(tmp_path, "prompt", proxy, tmp_path)
+    cfg = {
+        command[i + 1].split("=", 1)[0]: json.loads(command[i + 1].split("=", 1)[1])
+        for i, arg in enumerate(command[:-1])
+        if arg == "-c"
+    }
+    assert cfg["web_search"] == "disabled"
+    assert cfg["mcp_servers.deepseek_search.args"][0].endswith("sde_deepseek_search.py")
+    assert cfg["mcp_servers.deepseek_search.env_vars"] == [
+        "SDE_SEARCH_PROXY_URL",
+        "SDE_PROXY_TOKEN",
+    ]
+    assert m.config["search_backend"] == "deepseek_anthropic_bridge"
+    assert m.config["search_attempt_limit"] is None
+    assert m.config["agent_turn_limit"] is None
+    assert "private-DEEPSEEK_API_KEY" not in json.dumps(cfg)
+
+
+def test_unattributed_api_answer_is_recorded_without_claiming_root_identity():
+    calls = [{"index": 1, "status": "ok", "answer": "final"}]
+    call, attribution = cx.final_api_call(calls, "root", "final")
+    assert call is calls[0] and attribution == "answer_match_without_thread_identity"
+    assert cx.final_api_call(calls, "root", "fabricated")[0] is None
+
+
 def test_subscription_auth_requires_explicit_source_and_official_endpoint(
     model, tmp_path, monkeypatch
 ):
@@ -682,7 +789,7 @@ def test_subscription_account_change_rejected_by_adapter(model, tmp_path):
         m.validate_auth("unused")
 
 
-def test_code_mode_only_catalog_uses_shared_tools_without_changing_instructions(
+def test_code_mode_only_catalog_preserves_native_tools_and_instructions(
     model, tmp_path
 ):
     path = tmp_path / "catalog.json"
@@ -691,13 +798,13 @@ def test_code_mode_only_catalog_uses_shared_tools_without_changing_instructions(
     path.write_text(json.dumps(original))
     m = model()
     assert json.loads(path.read_text()) == original
-    assert m.catalog["models"][0]["tool_mode"] is None
+    assert m.catalog["models"][0]["tool_mode"] == "code_mode_only"
     assert (
         m.catalog["models"][0]["base_instructions"]
         == original["models"][0]["base_instructions"]
     )
     assert m.config["pinned_tool_mode"] == "code_mode_only"
-    assert m.config["catalog_normalizations"] == ["disabled_native_code_mode"]
+    assert m.config["catalog_normalizations"] == []
 
 
 def test_prompt_and_effective_command(model, tmp_path):
@@ -721,27 +828,21 @@ def test_prompt_and_effective_command(model, tmp_path):
     proxy.url = "http://127.0.0.1:2"
     cmd = m.command(
         tmp_path,
-        tmp_path / "quota.json",
         body["system_append"],
         proxy,
         tmp_path / "home",
     )
     assert cmd[-1] == "-" and "--ignore-user-config" in cmd and "--ignore-rules" in cmd
-    assert "--ephemeral" in cmd and "--sandbox" in cmd
-    assert (
-        "shell_tool" in cmd and "hooks" in cmd and "unbounded_connection_retries" in cmd
-    )
+    assert "--ephemeral" in cmd and "--dangerously-bypass-approvals-and-sandbox" in cmd
+    assert "hooks" in cmd and "unbounded_connection_retries" in cmd
+    assert "shell_tool" not in cmd
     cfg = {
         cmd[i + 1].split("=", 1)[0]: cmd[i + 1].split("=", 1)[1]
         for i, arg in enumerate(cmd[:-1])
         if arg == "-c"
     }
-    assert json.loads(cfg["mcp_servers.sde_tools.enabled_tools"]) == [
-        "web_search",
-        "read_url",
-        "run_shell",
-    ]
-    assert cfg["web_search"] == '"disabled"'
+    assert not any("mcp_servers.sde_tools" in key for key in cfg)
+    assert cfg["web_search"] == '"live"'
     assert cfg["project_doc_max_bytes"] == "0"
     assert cfg["model_providers.sde_recorded.request_max_retries"] == "0"
     assert not any("max_turn" in arg or "fallback_model" in arg for arg in cmd)
@@ -911,8 +1012,9 @@ def test_proxy_loopback_records_original_and_effective_requests(tmp_path):
         site = web.TCPSite(runner, "127.0.0.1", 0)
         await site.start()
         try:
-            async with aiohttp.ClientSession() as session:
-                async with ResponsesProxy(
+            async with (
+                aiohttp.ClientSession() as session,
+                ResponsesProxy(
                     session,
                     f"http://127.0.0.1:{runner.addresses[0][1]}/responses",
                     "test-model",
@@ -921,24 +1023,25 @@ def test_proxy_loopback_records_original_and_effective_requests(tmp_path):
                     "private-provider",
                     tmp_path,
                     [],
-                ) as proxy:
-                    async with session.post(
-                        proxy.url + "/" + proxy.token + "/responses",
-                        json=payload(),
-                        headers={"Authorization": "Bearer " + proxy.token},
-                    ) as response:
-                        assert response.status == 200
-                        await response.text()
-                    assert proxy.calls[0]["status"] == "ok"
-                    assert (
-                        proxy.calls[0]["original_payload"]["tools"][0]["name"]
-                        == "apply_patch"
-                    )
-                    assert (
-                        seen[0]["tools"] == FUNCTIONS
-                        and seen[0]["max_output_tokens"] == 128000
-                    )
-                    assert seen[0]["input"] == payload()["input"]
+                ) as proxy,
+            ):
+                async with session.post(
+                    proxy.url + "/" + proxy.token + "/responses",
+                    json=payload(),
+                    headers={"Authorization": "Bearer " + proxy.token},
+                ) as response:
+                    assert response.status == 200
+                    await response.text()
+                assert proxy.calls[0]["status"] == "ok"
+                assert (
+                    proxy.calls[0]["original_payload"]["tools"][0]["name"]
+                    == "apply_patch"
+                )
+                assert (
+                    seen[0]["tools"] == payload()["tools"]
+                    and seen[0]["max_output_tokens"] == 128000
+                )
+                assert seen[0]["input"] == payload()["input"]
         finally:
             await runner.cleanup()
 
@@ -965,8 +1068,9 @@ def test_proxy_failure_blocks_nested_retry_and_redacts_fragmented_secrets(tmp_pa
         site = web.TCPSite(runner, "127.0.0.1", 0)
         await site.start()
         try:
-            async with aiohttp.ClientSession() as session:
-                async with ResponsesProxy(
+            async with (
+                aiohttp.ClientSession() as session,
+                ResponsesProxy(
                     session,
                     f"http://127.0.0.1:{runner.addresses[0][1]}/responses",
                     "test-model",
@@ -975,20 +1079,19 @@ def test_proxy_failure_blocks_nested_retry_and_redacts_fragmented_secrets(tmp_pa
                     "private-provider",
                     tmp_path,
                     [],
-                ) as proxy:
-                    for expected in (524, 409):
-                        async with session.post(
-                            proxy.url + "/" + proxy.token + "/responses",
-                            json=payload(),
-                            headers={"Authorization": "Bearer " + proxy.token},
-                        ) as response:
-                            assert response.status == expected
-                            await response.text()
-                    assert len(seen) == 1 and proxy.failure.is_set()
-                    assert (
-                        "private-provider" not in (tmp_path / "api_001.sse").read_text()
-                    )
-                    assert "错误 <redacted>" in (tmp_path / "api_001.sse").read_text()
+                ) as proxy,
+            ):
+                for expected in (524, 409):
+                    async with session.post(
+                        proxy.url + "/" + proxy.token + "/responses",
+                        json=payload(),
+                        headers={"Authorization": "Bearer " + proxy.token},
+                    ) as response:
+                        assert response.status == expected
+                        await response.text()
+                assert len(seen) == 1 and proxy.failure.is_set()
+                assert "private-provider" not in (tmp_path / "api_001.sse").read_text()
+                assert "错误 <redacted>" in (tmp_path / "api_001.sse").read_text()
         finally:
             await runner.cleanup()
 
@@ -1060,7 +1163,7 @@ def test_real_subprocess_to_loopback_proxy_with_isolated_auth(
 
     async def run():
         async def upstream(req):
-            assert (await req.json())["tools"] == FUNCTIONS
+            assert (await req.json())["tools"] == payload()["tools"]
             assert req.headers["Authorization"] == "Bearer " + (
                 "private-access" if subscription else "private-DEEPSEEK_API_KEY"
             )

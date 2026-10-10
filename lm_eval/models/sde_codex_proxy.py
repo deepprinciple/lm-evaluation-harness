@@ -1,4 +1,4 @@
-"""Recorded Responses forwarding and explicit Codex tool/budget normalization."""
+"""Recorded native Responses forwarding with explicit output-budget handling."""
 
 import copy
 import json
@@ -9,21 +9,9 @@ from typing import Any
 import aiohttp
 from aiohttp import web
 
-from lm_eval.models.sde_cc_proxy import ALLOWED_TOOLS, MessagesProxy, redact
+from lm_eval.models.sde_cc_proxy import MessagesProxy, redact
 from lm_eval.models.sde_chat import save_record
-from lm_eval.models.sde_responses import parse_stream
-from lm_eval.models.sde_tools import TOOLS
-
-NAMESPACE = "mcp__sde_tools"
-FUNCTIONS = [
-    {
-        "type": "function",
-        "name": NAMESPACE + "__" + tool["name"],
-        "description": tool["description"],
-        "parameters": tool["inputSchema"],
-    }
-    for tool in TOOLS
-]
+from lm_eval.models.sde_responses import parse_stream, validate_native_item
 
 
 class ToolProfileError(ValueError):
@@ -31,60 +19,30 @@ class ToolProfileError(ValueError):
 
 
 def guard_functions(value: Any) -> None:
+    """Validate named-call fields without restricting tool names or namespaces."""
     if isinstance(value, dict):
-        kind = value.get("type", "")
-        if kind == "function_call" and function_name(value) not in ALLOWED_TOOLS:
-            raise ToolProfileError("Unapproved function call")
-        if kind in {
-            "custom_tool_call",
-            "web_search_call",
-            "computer_call",
-            "code_interpreter_call",
-            "tool_search_call",
-            "mcp_call",
-        }:
-            raise ToolProfileError("Unapproved native tool")
+        if value.get("type") in ("function_call", "custom_tool_call", "mcp_call"):
+            if not isinstance(value.get("name"), str) or not value["name"]:
+                raise ToolProfileError("Invalid tool name")
+            if value.get("namespace") is not None and not isinstance(
+                value["namespace"], str
+            ):
+                raise ToolProfileError("Invalid tool namespace")
         for child in value.values():
             guard_functions(child)
     elif isinstance(value, list):
         for child in value:
             guard_functions(child)
-
-
-def function_name(item: dict[str, Any]) -> str:
-    name = item.get("name", "")
-    if not isinstance(name, str) or not isinstance(item.get("namespace", ""), str):
-        return ""
-    return item["namespace"] + "__" + name if item.get("namespace") else name
-
-
-def map_functions(value: Any, to_cli: bool) -> None:
-    """Bridge flat provider names to Codex namespaces; never rewrite arguments."""
-    if isinstance(value, dict):
-        if value.get("type") == "function_call":
-            name = function_name(value)
-            if name in ALLOWED_TOOLS:
-                value["name"] = name.removeprefix(NAMESPACE + "__") if to_cli else name
-                if to_cli:
-                    value["namespace"] = NAMESPACE
-                else:
-                    value.pop("namespace", None)
-        for child in value.values():
-            map_functions(child, to_cli)
-    elif isinstance(value, list):
-        for child in value:
-            map_functions(child, to_cli)
 
 
 def mapped_line(line: bytes) -> bytes:
+    """Preserve the provider's SSE bytes, including native tool namespaces."""
     if line.startswith(b"data:"):
         try:
             event = json.loads(line[5:])
         except (ValueError, UnicodeError, TypeError):
             return line
         guard_functions(event)
-        map_functions(event, True)
-        return b"data: " + json.dumps(event, ensure_ascii=False).encode()
     return line
 
 
@@ -98,45 +56,50 @@ def prepare_payload(body: dict[str, Any], model: str, effort: str, budget: int) 
         raise ValueError("budget_mismatch")
     if body.get("stream") is not True or not isinstance(body.get("input"), list):
         raise ValueError("protocol_error")
+    if any(not isinstance(item, dict) for item in body["input"]):
+        raise ValueError("protocol_error")
+    for field in ("tools", "additional_tools"):
+        if field in body and (
+            not isinstance(body[field], list)
+            or any(not isinstance(tool, dict) for tool in body[field])
+        ):
+            raise ValueError("protocol_error")
+    for item in body["input"]:
+        if "type" in item and not isinstance(item["type"], str):
+            raise ValueError("protocol_error")
+        if item.get("type") == "additional_tools" and (
+            item.get("role") != "developer"
+            or not isinstance(item.get("tools"), list)
+            or any(not isinstance(tool, dict) for tool in item["tools"])
+            or set(item) - {"type", "id", "role", "tools"}
+            or ("id" in item and not isinstance(item["id"], str))
+        ):
+            raise ValueError("protocol_error")
+        if item.get("type") in {
+            "function_call",
+            "custom_tool_call",
+            "function_call_output",
+            "custom_tool_call_output",
+        }:
+            try:
+                validate_native_item(item)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("protocol_error") from exc
+    try:
+        guard_functions(body["input"])
+    except ToolProfileError as exc:
+        raise ValueError("protocol_error") from exc
     value = copy.deepcopy(body)
     # Codex has no documented per-response output setting. Keep the original
     # request, then set and record the actual provider budget explicitly.
     value["max_output_tokens"] = budget
-    value["tools"] = copy.deepcopy(FUNCTIONS)
-    value["tool_choice"] = "auto"
-    # No native tools, deferred discovery or setup generation is forwarded.
-    history = []
-    for item in value["input"]:
-        if isinstance(item, dict) and item.get("type") == "additional_tools":
-            if (
-                item.get("role") != "developer"
-                or not isinstance(item.get("tools"), list)
-                or set(item) - {"type", "id", "role", "tools"}
-            ):
-                raise ValueError("tool_profile_mismatch")
-            continue
-        if not isinstance(item, dict) or item.get("type") not in {
-            "message",
-            "reasoning",
-            "function_call",
-            "function_call_output",
-        }:
-            raise ValueError("tool_profile_mismatch")
-        if (
-            item.get("type") == "function_call"
-            and function_name(item) not in ALLOWED_TOOLS
-        ):
-            raise ValueError("tool_profile_mismatch")
-        history.append(item)
-    value["input"] = history
-    map_functions(value["input"], False)
     return value
 
 
 def inspect_stream(
     body: str, model: str, effort: str, budget: int | None = None
 ) -> dict[str, Any]:
-    parsed = parse_stream(body, allowed_tools=ALLOWED_TOOLS)
+    parsed = parse_stream(body, agent_mode=True)
     response = parsed["response"]
     status = "ok"
     terminal = parsed["terminal_event"]
@@ -172,15 +135,19 @@ def inspect_stream(
     elif any(
         part.get("type") == "refusal"
         for item in output
+        if item.get("type") == "message"
         for part in item.get("content", [])
     ):
         status = "refusal"
     elif response.get("error") or any(
-        item.get("status", "completed") != "completed" for item in output
+        item.get("status", "completed") != "completed" or item.get("error")
+        for item in output
     ):
         status = "protocol_error"
     elif not text.strip() and not any(
-        item.get("type") == "function_call" for item in output
+        item.get("type")
+        not in {"message", "reasoning", "compaction", "additional_tools"}
+        for item in output
     ):
         status = "empty"
     return {
@@ -200,11 +167,18 @@ class ResponsesProxy(MessagesProxy):
         super().__init__(*args, **kwargs)
         self.auth_mode = auth_mode
         self.controls: list[dict[str, Any]] = []
-        self.previous_payload: dict[str, Any] | None = None
-        self.last_response: dict[str, Any] | None = None
+        self.search_calls: list[dict[str, Any]] = []
+        self.response_history: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
 
     async def __aenter__(self):
         app = web.Application(client_max_size=32 * 1024**2)
+
+        async def search(request: web.Request) -> web.StreamResponse:
+            from lm_eval.models.sde_deepseek_search import forward_search
+
+            return await forward_search(request, self)
+
+        app.router.add_post(f"/{self.token}/deepseek-search", search)
         app.router.add_post("/{path:.*}", self.forward)
         app.router.add_get("/{path:.*}", self.forward_ws)
         self.runner = web.AppRunner(app, shutdown_timeout=1)
@@ -328,11 +302,13 @@ class ResponsesProxy(MessagesProxy):
             "original_payload": body,
             "status": "running",
             "cli_transport": "websocket" if channel is not None else "http",
-            "normalizations": [
-                "fixed_output_budget",
-                "shared_mcp_tools",
-                "function_namespaces",
-            ],
+            "normalizations": ["fixed_output_budget"],
+            "output_budget_limitation": (
+                "Subscription output budget is a request parameter; enforcement "
+                "is not independently verified, and absent echo is not confirmation."
+                if self.auth_mode == "chatgpt"
+                else None
+            ),
         }
         self.calls.append(call)
         raw = self.directory / f"api_{call['index']:03}.sse"
@@ -344,17 +320,21 @@ class ResponsesProxy(MessagesProxy):
                     raise ValueError("protocol_error")
                 call["normalizations"].append("websocket_to_http")
                 previous_id = incoming.pop("previous_response_id", None)
-                if previous_id:
+                if previous_id is not None:
                     if (
-                        self.last_response is None
-                        or self.previous_payload is None
-                        or previous_id != self.last_response["id"]
+                        not isinstance(previous_id, str)
+                        or previous_id not in self.response_history
                     ):
                         raise ValueError("protocol_error")
+                    if not isinstance(incoming.get("input"), list):
+                        raise ValueError("protocol_error")
+                    previous_payload, previous_response = self.response_history[
+                        previous_id
+                    ]
                     incoming["input"] = (
-                        copy.deepcopy(self.previous_payload["input"])
-                        + copy.deepcopy(self.last_response["output"])
-                        + incoming.get("input", [])
+                        copy.deepcopy(previous_payload["input"])
+                        + copy.deepcopy(previous_response["output"])
+                        + incoming["input"]
                     )
                     call["normalizations"].append(
                         "materialized_previous_response_history"
@@ -366,12 +346,6 @@ class ResponsesProxy(MessagesProxy):
             call["payload"] = prepare_payload(
                 incoming, self.api_model, self.effort, self.max_tokens
             )
-            if any(
-                item.get("type") == "additional_tools"
-                for item in incoming["input"]
-                if isinstance(item, dict)
-            ):
-                call["normalizations"].append("removed_inline_tool_declarations")
         except ValueError as exc:
             call["status"] = str(exc)
             self.persist(call)
@@ -477,8 +451,10 @@ class ResponsesProxy(MessagesProxy):
                         )
                     )
                 if call["status"] == "ok":
-                    self.previous_payload = copy.deepcopy(call["payload"])
-                    self.last_response = copy.deepcopy(call["response"])
+                    self.response_history[call["response"]["id"]] = (
+                        copy.deepcopy(call["payload"]),
+                        copy.deepcopy(call["response"]),
+                    )
                 if channel is None:
                     await downstream.write_eof()
                 elif response.status != 200:
@@ -492,7 +468,7 @@ class ResponsesProxy(MessagesProxy):
                         }
                     )
         except ToolProfileError as exc:
-            call.update(status="tool_profile_mismatch", error=str(exc))
+            call.update(status="protocol_error", error=str(exc))
         except (aiohttp.ClientError, OSError, UnicodeError) as exc:
             call.update(status="transport_failed", error=type(exc).__name__)
         finally:

@@ -1,9 +1,10 @@
 """Recorded Codex CLI agents with API-key or isolated subscription authentication."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
-import os
 import subprocess
 import tempfile
 import time
@@ -12,7 +13,7 @@ from typing import Any
 
 from lm_eval.api.instance import GenerationResult, Instance
 from lm_eval.api.registry import register_model
-from lm_eval.models.sde_cc_proxy import ALLOWED_TOOLS, redact
+from lm_eval.models.sde_cc_proxy import redact
 from lm_eval.models.sde_chat import SDEChatCompletion, digest
 from lm_eval.models.sde_claude_code import (
     SYSTEM,
@@ -23,26 +24,12 @@ from lm_eval.models.sde_claude_code import (
 from lm_eval.models.sde_codex_proxy import ResponsesProxy
 from lm_eval.models.sde_stream import stream_sha256
 
+
 DISABLED_FEATURES = (
     "memories",
-    "plugins",
-    "apps",
-    "multi_agent",
-    "multi_agent_v2",
-    "shell_tool",
-    "unified_exec",
-    "view_image",
-    "browser_use",
-    "computer_use",
-    "image_generation",
-    "sleep_tool",
     "hooks",
-    "code_mode",
-    "code_mode_host",
     "enable_request_compression",
     "unbounded_connection_retries",
-    "tool_search",
-    "tool_search_always_defer_mcp_tools",
 )
 SUBSCRIPTION_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 
@@ -70,6 +57,32 @@ def read_subscription(path: Path) -> tuple[bytes, str, list[str]]:
             if name != "account_id" and isinstance(value, str)
         ],
     )
+
+
+def final_api_call(
+    calls: list[dict[str, Any]], thread_id: str | None, answer: str
+) -> tuple[dict[str, Any] | None, str]:
+    """Match CLI evidence, never scientific correctness or a child's last call."""
+    tagged = []
+    for call in calls:
+        body = call.get("original_payload") or {}
+        metadata = body.get("client_metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        identity = metadata.get("thread_id") or body.get("prompt_cache_key")
+        if identity:
+            tagged.append((call, identity))
+    if tagged:
+        candidates = [call for call, identity in tagged if identity == thread_id]
+        attribution = "thread_id"
+    else:
+        candidates = calls
+        attribution = "answer_match_without_thread_identity"
+    matching = [
+        call
+        for call in candidates
+        if call.get("status") == "ok" and call.get("answer", "").rstrip("\n") == answer
+    ]
+    return (matching[-1] if matching else None), attribution
 
 
 def summarize_trace(body: str, answer: str, returncode: int) -> dict[str, Any]:
@@ -111,26 +124,22 @@ def summarize_trace(body: str, answer: str, returncode: int) -> dict[str, Any]:
                 if not isinstance(item, dict):
                     raise ValueError("Invalid trace item")
                 item_type = item.get("type")
-                if item_type == "mcp_tool_call":
-                    if (
-                        item.get("server") != "sde_tools"
-                        or "mcp__sde_tools__" + item.get("tool", "")
-                        not in ALLOWED_TOOLS
-                    ):
-                        status = "tool_profile_mismatch"
-                    if kind == "item.completed":
-                        tools.append(item)
-                elif item_type not in {"agent_message", "reasoning", "error"}:
-                    status = "tool_profile_mismatch"
-                elif item_type == "error":
+                if not isinstance(item_type, str) or not item_type:
+                    raise ValueError("Missing trace item type")
+                if item_type == "error":
                     errors.append(event)
                 elif item_type == "agent_message" and kind == "item.completed":
                     if not isinstance(item.get("text"), str):
                         raise ValueError("Non-text answer")
                     messages.append(item["text"])
+                elif (
+                    item_type not in {"agent_message", "reasoning"}
+                    and kind == "item.completed"
+                ):
+                    tools.append(item)
             else:
                 raise ValueError("Unexpected trace event")
-        if status != "tool_profile_mismatch" and completed and returncode == 0:
+        if completed and returncode == 0:
             if not answer.strip():
                 status = "empty"
             elif not messages or messages[-1] != answer:
@@ -246,9 +255,6 @@ class SDECodex(SDEChatCompletion):
         )
         if effort not in {"low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported Codex effort")
-        for name in ("SERPAPI_API_KEY", "JINA_API_KEY"):
-            if not os.environ.get(name, "").strip():
-                raise ValueError(f"Tool key not found in {name}")
         self.codex = Path(codex_bin).resolve()
         self.tool_python = Path(tool_python).absolute()
         self.node = Path(node_bin).absolute() if node_bin else None
@@ -267,10 +273,7 @@ class SDECodex(SDEChatCompletion):
         # Freeze only this model; no opportunistic lookup/fallback to another model.
         self.catalog = {"models": [dict(entries[0])]}
         pinned_tool_mode = entries[0].get("tool_mode")
-        catalog_normalizations = []
-        if pinned_tool_mode == "code_mode_only":
-            self.catalog["models"][0]["tool_mode"] = None
-            catalog_normalizations.append("disabled_native_code_mode")
+        self.deepseek_search = model == "deepseek-flash" and auth_mode == "api_key"
         runtime = validate_runtime(self.codex, cli_version, self.tool_python, self.node)
         self.config.pop("thinking")
         self.config.pop("reasoning_effort")
@@ -285,12 +288,15 @@ class SDECodex(SDEChatCompletion):
             model_catalog_sha256=hashlib.sha256(catalog_bytes).hexdigest(),
             selected_catalog=self.catalog,
             pinned_tool_mode=pinned_tool_mode,
-            catalog_normalizations=catalog_normalizations,
+            catalog_normalizations=[],
             **runtime,
-            search_backend="serpapi",
-            read_backend="jina",
-            search_attempt_limit=3,
-            native_tools=False,
+            tools_policy="all_available",
+            search_backend="deepseek_anthropic_bridge"
+            if self.deepseek_search
+            else "native_responses",
+            read_backend="native_tools",
+            search_attempt_limit=None,
+            native_tools=True,
             agent_turn_limit=None,
             system_append=SYSTEM,
             output_budget="proxy_injected_per_response",
@@ -301,11 +307,10 @@ class SDECodex(SDEChatCompletion):
         for name in (
             "sde_codex",
             "sde_codex_proxy",
-            "sde_tools",
-            "sde_sandbox",
             "sde_claude_code",
             "sde_cc_proxy",
             "sde_responses",
+            "sde_deepseek_search",
         ):
             self.config[name + "_sha256"] = hashlib.sha256(
                 Path(__file__).with_name(name + ".py").read_bytes()
@@ -365,7 +370,6 @@ class SDECodex(SDEChatCompletion):
     def command(
         self,
         directory: Path,
-        quota: Path,
         system: str,
         proxy: ResponsesProxy,
         home: Path,
@@ -377,14 +381,14 @@ class SDECodex(SDEChatCompletion):
             "model_provider": provider,
             "model_catalog_json": str(catalog),
             "model_reasoning_effort": self.config["effort"],
-            "web_search": "disabled",
+            "web_search": "disabled" if self.deepseek_search else "live",
             "approval_policy": "never",
-            "agents.enabled": False,
+            "agents.enabled": True,
             "project_root_markers": [],
             "project_doc_max_bytes": 0,
             "suppress_unstable_features_warning": True,
             "project_doc_fallback_filenames": [],
-            "shell_environment_policy.inherit": "none",
+            "shell_environment_policy.inherit": "all",
             "developer_instructions": system,
             "cli_auth_credentials_store": "file",
             f"model_providers.{provider}.name": provider,
@@ -398,28 +402,24 @@ class SDECodex(SDEChatCompletion):
             f"model_providers.{provider}.stream_idle_timeout_ms": int(
                 self.config["timeout"] * 1000
             ),
-            "mcp_servers.sde_tools.command": str(self.tool_python),
-            "mcp_servers.sde_tools.args": [
-                str(Path(__file__).with_name("sde_tools.py")),
-                str(directory / "work/compute"),
-                str(quota),
-                str(directory / "tools.jsonl"),
-            ],
-            "mcp_servers.sde_tools.env_vars": [
-                "SERPAPI_API_KEY",
-                "JINA_API_KEY",
-                "ANTHROPIC_AUTH_TOKEN",
-            ],
-            "mcp_servers.sde_tools.enabled_tools": [
-                "web_search",
-                "read_url",
-                "run_shell",
-            ],
-            "mcp_servers.sde_tools.required": True,
-            "mcp_servers.sde_tools.startup_timeout_sec": 30,
-            "mcp_servers.sde_tools.tool_timeout_sec": 90,
-            "mcp_servers.sde_tools.default_tools_approval_mode": "approve",
         }
+        if self.deepseek_search:
+            cfg.update(
+                {
+                    "mcp_servers.deepseek_search.command": str(self.tool_python),
+                    "mcp_servers.deepseek_search.args": [
+                        str(Path(__file__).with_name("sde_deepseek_search.py")),
+                        str(directory / "tools.jsonl"),
+                    ],
+                    "mcp_servers.deepseek_search.env_vars": [
+                        "SDE_SEARCH_PROXY_URL",
+                        "SDE_PROXY_TOKEN",
+                    ],
+                    "mcp_servers.deepseek_search.required": True,
+                    "mcp_servers.deepseek_search.tool_timeout_sec": 150,
+                    "mcp_servers.deepseek_search.default_tools_approval_mode": "approve",
+                }
+            )
         if self.auth_mode == "chatgpt":
             cfg = {
                 key: value
@@ -441,8 +441,7 @@ class SDECodex(SDEChatCompletion):
             "--json",
             "--model",
             self.model,
-            "--sandbox",
-            "read-only",
+            "--dangerously-bypass-approvals-and-sandbox",
             "-C",
             str(directory / "work"),
             "-o",
@@ -461,16 +460,11 @@ class SDECodex(SDEChatCompletion):
         record = Path(attempt["record_path"])
         directory = record.with_suffix(f".attempt{attempt['attempt']:02}.codex")
         directory.mkdir(exist_ok=False)
-        work = directory / "work"
-        for name in ("tmp", "compute"):
-            (work / name).mkdir(parents=True)
-        quota = record.with_suffix(".search.json")
-        secrets = [key, os.environ["SERPAPI_API_KEY"], os.environ["JINA_API_KEY"]]
+        secrets = [key]
         attempt.update(
             trace_path=str(directory / "trace.jsonl"),
             stderr_path=str(directory / "stderr.log"),
             tools_path=str(directory / "tools.jsonl"),
-            search_quota_path=str(quota),
         )
         proc = None
         captures: list[asyncio.Task] = []
@@ -490,6 +484,9 @@ class SDECodex(SDEChatCompletion):
             # OAuth files must never be written into retained raw-result trees.
             with tempfile.TemporaryDirectory(prefix="sde-codex-auth-") as tmp:
                 home = Path(tmp)
+                work = home / "work"
+                for name in ("tmp", "compute"):
+                    (work / name).mkdir(parents=True)
                 codex_home = home / ".codex"
                 codex_home.mkdir(mode=0o700)
                 if self.auth_mode == "chatgpt":
@@ -504,9 +501,7 @@ class SDECodex(SDEChatCompletion):
                     auth.touch(mode=0o600)
                     auth.write_bytes(raw)
                 async with proxy:
-                    cmd = self.command(
-                        directory, quota, payload["system_append"], proxy, home
-                    )
+                    cmd = self.command(directory, payload["system_append"], proxy, home)
                     attempt["command"] = [redact(arg, [proxy.token]) for arg in cmd]
                     env = {
                         "HOME": str(home),
@@ -516,9 +511,11 @@ class SDECodex(SDEChatCompletion):
                         "PATH": f"{self.codex.parent}:{self.tool_python.parent}:{self.node.parent if self.node else '/usr/bin'}:/usr/bin:/bin",
                         "SDE_PROXY_TOKEN": proxy.token,
                         "ANTHROPIC_AUTH_TOKEN": proxy.token,
-                        "SERPAPI_API_KEY": os.environ["SERPAPI_API_KEY"],
-                        "JINA_API_KEY": os.environ["JINA_API_KEY"],
                     }
+                    if self.deepseek_search:
+                        env["SDE_SEARCH_PROXY_URL"] = (
+                            proxy.url + "/" + proxy.token + "/deepseek-search"
+                        )
                     proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         stdin=asyncio.subprocess.PIPE,
@@ -598,20 +595,37 @@ class SDECodex(SDEChatCompletion):
             attempt["cli_controls"] = json.loads(
                 redact(json.dumps(proxy.controls), proxy.secrets + [proxy.token])
             )
+            attempt["search_calls"] = json.loads(
+                redact(
+                    json.dumps(proxy.search_calls, ensure_ascii=False),
+                    proxy.secrets + [proxy.token],
+                )
+            )
             failed = [call for call in proxy.calls if call["status"] != "ok"]
+            failed.extend(call for call in proxy.search_calls if call.get("fatal"))
             if failed and not cancelled:
                 attempt["status"] = failed[0]["status"]
                 if failed[0].get("http_status") in (401, 403):
                     attempt["http_status"] = failed[0]["http_status"]
             elif attempt.get("status") == "ok" and not proxy.calls:
                 attempt["status"] = "protocol_error"
-            # If an API terminal answer exists, the CLI final must agree exactly.
+            # Child agents can finish after the parent. Attribute by root thread
+            # when available instead of treating the last global API call as final.
+            final_call = None
             if attempt.get("status") == "ok" and proxy.calls:
-                last = proxy.calls[-1]
-                if last.get("answer", "").rstrip("\n") != attempt.get("answer", ""):
+                final_call, attribution = final_api_call(
+                    proxy.calls, attempt.get("thread_id"), attempt.get("answer", "")
+                )
+                attempt["api_answer_attribution"] = attribution
+                attempt["final_api_call_index"] = (
+                    final_call["index"] if final_call else None
+                )
+                if final_call is None:
                     attempt["status"] = "protocol_error"
             attempt["response"] = {
-                "model": (proxy.calls[-1].get("response") or {}).get("model")
+                "model": ((final_call or proxy.calls[-1]).get("response") or {}).get(
+                    "model"
+                )
                 if proxy.calls
                 else None,
                 "usage": attempt.get("usage") or {},
@@ -640,7 +654,9 @@ class SDECodex(SDEChatCompletion):
                         "trace_path",
                         "stderr_path",
                         "tools_path",
-                        "search_quota_path",
+                        "search_calls",
+                        "api_answer_attribution",
+                        "final_api_call_index",
                         "returncode",
                         "api_calls",
                         "cli_controls",
