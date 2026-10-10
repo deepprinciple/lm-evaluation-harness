@@ -682,6 +682,24 @@ def test_subscription_account_change_rejected_by_adapter(model, tmp_path):
         m.validate_auth("unused")
 
 
+def test_code_mode_only_catalog_uses_shared_tools_without_changing_instructions(
+    model, tmp_path
+):
+    path = tmp_path / "catalog.json"
+    original = json.loads(path.read_text())
+    original["models"][0]["tool_mode"] = "code_mode_only"
+    path.write_text(json.dumps(original))
+    m = model()
+    assert json.loads(path.read_text()) == original
+    assert m.catalog["models"][0]["tool_mode"] is None
+    assert (
+        m.catalog["models"][0]["base_instructions"]
+        == original["models"][0]["base_instructions"]
+    )
+    assert m.config["pinned_tool_mode"] == "code_mode_only"
+    assert m.config["catalog_normalizations"] == ["disabled_native_code_mode"]
+
+
 def test_prompt_and_effective_command(model, tmp_path):
     m = model()
     r = request()

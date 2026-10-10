@@ -23,7 +23,6 @@ from lm_eval.models.sde_claude_code import (
 from lm_eval.models.sde_codex_proxy import ResponsesProxy
 from lm_eval.models.sde_stream import stream_sha256
 
-
 DISABLED_FEATURES = (
     "memories",
     "plugins",
@@ -266,7 +265,12 @@ class SDECodex(SDEChatCompletion):
         }:
             raise ValueError("Pinned catalog does not support the requested effort")
         # Freeze only this model; no opportunistic lookup/fallback to another model.
-        self.catalog = {"models": entries}
+        self.catalog = {"models": [dict(entries[0])]}
+        pinned_tool_mode = entries[0].get("tool_mode")
+        catalog_normalizations = []
+        if pinned_tool_mode == "code_mode_only":
+            self.catalog["models"][0]["tool_mode"] = None
+            catalog_normalizations.append("disabled_native_code_mode")
         runtime = validate_runtime(self.codex, cli_version, self.tool_python, self.node)
         self.config.pop("thinking")
         self.config.pop("reasoning_effort")
@@ -280,6 +284,8 @@ class SDECodex(SDEChatCompletion):
             tool_python=str(self.tool_python),
             model_catalog_sha256=hashlib.sha256(catalog_bytes).hexdigest(),
             selected_catalog=self.catalog,
+            pinned_tool_mode=pinned_tool_mode,
+            catalog_normalizations=catalog_normalizations,
             **runtime,
             search_backend="serpapi",
             read_backend="jina",
