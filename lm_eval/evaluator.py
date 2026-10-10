@@ -580,7 +580,7 @@ def evaluate(
 
         # put responses from model into a list of length K for each request.
         for x, req in zip(resps, cloned_reqs):
-            req.resps.append(x)
+            req.add_response(x)
 
         if lm.world_size > 1:
             lm.accelerator.wait_for_everyone()
@@ -649,6 +649,14 @@ def evaluate(
                         "prompt_hash": hash_string(requests[0].arguments[0]),
                         "target_hash": hash_string(str(target)),
                     }
+                    if any(
+                        metadata is not None
+                        for req in requests
+                        for metadata in req.response_metadata
+                    ):
+                        example["response_metadata"] = [
+                            req.response_metadata for req in requests
+                        ]
                     example.update(metrics)
                     task_output.logged_samples.append(example)
                 for metric, value in metrics.items():
