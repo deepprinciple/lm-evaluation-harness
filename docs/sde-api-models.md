@@ -5,8 +5,8 @@ harness tasks, chat formatting, filters and metrics, and returns execution metad
 alongside generated text. Legacy model registrations keep their existing behavior.
 The `sde-messages` and `sde-responses` adapters add Opus Messages and Astra
 Responses SSE profiles using the same request lifecycle. `sde-claude-code`
-adds a recorded Claude Code CLI agent with shared MCP tools. The Codex CLI adapter
-is not implemented yet.
+adds a recorded Claude Code CLI agent with shared MCP tools. `sde-codex` adds
+a Codex CLI agent with API-key and explicit ChatGPT-subscription profiles.
 
 ## Configuration
 
@@ -323,4 +323,127 @@ For Opus, explicitly select the CLI and API model `claude-opus-5-5`, relay root
 an executed experiment, deployment instruction or verified third-party endpoint
 compatibility. CLI output limits, tool connection and actual effort need a
 separately authorized live smoke test. Status summaries, repeat accuracy
-aggregation and the Codex adapter remain pending.
+aggregation remain pending.
+
+
+## Codex CLI agent
+
+`sde-codex` uses Codex for the agent loop and retains the same harness question,
+filter and metric pipeline. It shares the three MCP tools, Linux compute isolation,
+search quota, question deadline, technical retry lifecycle and appended scientific
+instructions with `sde-claude-code`. It does not port the historical scripts'
+six-turn limit or fabricated tool-discovery generation. The CLI's own base prompt
+and conversation representation remain framework-specific; identical tools and
+budgets do not imply identical harness instructions or inference cost.
+
+Required arguments are `model`, `max_tokens`, `record_dir`, `codex_bin`, exact
+`cli_version`, `tool_python`, `model_catalog` and `base_url`. The selected catalog
+must contain exactly one entry for that model supporting the requested effort.
+Its existing model instructions are retained, not synthesized or substituted.
+The full file checksum and selected entry are recorded along with the CLI binary,
+version, feature inventory and shared runtime/helper checksums. Runtime validation
+rejects a CLI missing the required isolation/configuration switches. An npm CLI
+can also specify `node_bin` for the isolated PATH. This draft was checked with
+`codex-cli 0.162.0`; a different version requires its own compatibility check.
+
+There are two explicit authentication profiles:
+
+- `auth_mode=api_key` (default): reads only the named environment variable
+  (`DEEPSEEK_API_KEY` by default). An `auth_file` is rejected. The CLI sees a
+  loopback session token; the proxy adds the actual API credential upstream.
+- `auth_mode=chatgpt`: requires an explicit `auth_file` containing a ChatGPT
+  login and the exact endpoint `https://chatgpt.com/backend-api/codex/responses`.
+  It refuses a relay endpoint rather than forwarding subscription credentials to
+  one. The login's account identity is hashed and checked on each attempt; token
+  values are not configuration/resume identities. A 0600 authentication copy is
+  placed in temporary CODEX_HOME outside the retained result tree, then deleted.
+  The CLI may refresh that copy; the original file is never overwritten. This is
+  not an API key minted from a subscription and does not establish live access to
+  any particular model. Concurrent token refresh behavior needs a live check.
+
+Both profiles require `SERPAPI_API_KEY` and `JINA_API_KEY`. Each attempt starts a
+fresh CLI process and isolated HOME without personal settings, hooks, skills,
+plugins, project AGENTS documents or previous conversations. Native shell, search,
+file operations and additional agents are excluded from the model-facing tool
+schemas. Only `web_search`, `read_url` and `run_shell` through the shared MCP server
+are supplied upstream. Unexpected function/native tool events are blocked before
+being forwarded to the CLI, recorded as `tool_profile_mismatch`, and not retried.
+
+The loopback Responses proxy is deliberately **not byte-transparent**:
+
+- It preserves the CLI's original request, then replaces tool schemas with the
+  three shared MCP functions and explicitly sets `max_output_tokens` to the
+  harness budget. Flat provider function names are mapped to Codex MCP namespaces;
+  arguments and call IDs are retained. Actual instructions and conversation input
+  are captured so this transformation can be reviewed.
+- For subscription CLI WebSocket traffic, it records each original JSON request
+  and bridges generation to an upstream HTTP SSE request. When a frame references
+  the last response ID, it materializes the preceding input/output plus new input;
+  an unknown ID is rejected. This preserves the visible conversation rather than
+  relying on undocumented upstream WebSocket state.
+- `generate=false` WebSocket connection prewarm receives a local, empty control
+  acknowledgement with no upstream inference. Its original frame and local reply
+  are saved separately as `control_NNN.json` and `cli_controls`, not `api_calls` or
+  generated answers. No synthetic scientific answer or tool-discovery generation
+  is inserted into the model history.
+
+CLI configuration and event format were checked against the
+[Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+and [noninteractive CLI documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+No documented Codex setting for a per-response output ceiling was found. The
+recorded proxy injection is therefore explicit; it must not be described as a
+native CLI setting. A response echoing a different budget is rejected. If the
+response omits that field, `output_budget_echo_matches` is null: sending a budget
+is not proof the server honors it. In particular, acceptance of the injected field
+by the real subscription backend or a relay remains unverified; rejection is a
+recorded failure, never a reason to silently remove the field or switch models.
+
+Defaults remain `effort=max`, four questions concurrently, 3600 seconds per started
+question and three total attempts with 2/4-second backoff. There is no CLI turn
+limit or whole-question token ceiling. All generation calls, including any CLI
+helper/compaction request, must match the model/effort/tool profile. API provider
+transport retries are set to zero. The reserved built-in subscription provider
+cannot be redefined by current Codex; the proxy blocks any further upstream calls
+once an observable failure occurs, so built-in retries cannot create additional
+model generations within that failed attempt. Prewarm controls are not model calls.
+Hidden provider retries remain unobservable. Quota exhaustion and 401/403 are
+recorded and stop the batch. Refusal, token/context limits, model/profile mismatch
+and wrong scientific answers never select retries.
+
+Every attempt retains CLI trace JSONL, stderr, answer file, MCP tool log,
+original/effective model requests, raw upstream SSE and parsed per-call output and
+usage. The CLI must exit successfully with a unique completed turn, and its final
+answer must exactly match the last API answer. Partial traces, completed tool
+turns or an answer file alone do not constitute a completed question. Returned
+reasoning text, summaries and encrypted fields are stored as supplied; unavailable
+reasoning is not reconstructed. CLI turn usage and per-call API usage are kept
+separately and are not a guarantee about billing. Keys and subscription tokens are
+redacted from retained records. Normal interruption cleanup and persistence have
+the same limitations described for Claude Code above.
+
+A single user question is passed unchanged on stdin. Leading system messages are
+appended as developer instructions; few-shot conversations are preserved as
+labelled role/content JSON inside the CLI prompt, not as native API-role history.
+The constructor makes no model requests and requires the same Linux isolation
+preflight as Claude Code. Local Mac validation substitutes that preflight and a
+fake MCP server; it does not prove remote compute isolation or live provider access.
+
+Example only; use the full provider Responses endpoint and an externally pinned
+catalog rather than assuming Codex can discover these third-party models:
+
+```bash
+lm_eval --model sde-codex \
+  --model_args 'model=deepseek-flash,max_tokens=128000,record_dir=results/flash_codex_max/raw,codex_bin=/opt/sde/codex,cli_version=0.162.0,tool_python=/opt/sde/tools-venv/bin/python,model_catalog=/opt/sde/catalogs/flash.json,base_url=https://api.deepseek.com/responses,api_key_env=DEEPSEEK_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3' \
+  --gen_kwargs max_tokens=128000 \
+  --tasks science_chem_quantum_software --limit 1 \
+  --apply_chat_template --log_samples --output_path results/flash_codex_max
+```
+
+For a subscription profile, explicitly supply `auth_mode=chatgpt`, `auth_file`,
+its required endpoint and a catalog/model available to that account. No migration
+command launches an experiment. Tests cover offline failure cases and real local
+Codex CLI against mocked model/MCP services with fake credentials. Those CLI probes
+may attempt authentication control-plane refresh with the fake tokens; they do
+not call a live model or use personal credentials. A separately authorized live
+smoke test is still required before full evaluation. Status-aware summaries and
+per-repeat accuracy aggregation remain pending.
