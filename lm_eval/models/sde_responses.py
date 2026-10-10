@@ -12,7 +12,9 @@ from lm_eval.models.sde_chat import SDEChatCompletion
 from lm_eval.models.sde_stream import capture_stream, sse_events, stream_sha256
 
 
-def validate_response(value: Any) -> dict[str, Any]:
+def validate_response(
+    value: Any, allowed_tools: set[str] | None = None
+) -> dict[str, Any]:
     if (
         not isinstance(value, dict)
         or not isinstance(value.get("id"), str)
@@ -29,8 +31,20 @@ def validate_response(value: Any) -> dict[str, Any]:
         if not isinstance(item, dict) or item.get("type") not in {
             "message",
             "reasoning",
+            *({"function_call"} if allowed_tools is not None else set()),
         }:
             raise ValueError("unexpected no-tools output item")
+        if item["type"] == "function_call":
+            name = item.get("name", "")
+            if item.get("namespace"):
+                name = item["namespace"] + "__" + name
+            if (
+                allowed_tools is None
+                or name not in allowed_tools
+                or not isinstance(item.get("arguments"), str)
+                or not isinstance(item.get("call_id"), str)
+            ):
+                raise ValueError("unexpected function call")
         if item["type"] == "message":
             if item.get("role") != "assistant" or not isinstance(
                 item.get("content"), list
@@ -48,7 +62,7 @@ def validate_response(value: Any) -> dict[str, Any]:
     return copy.deepcopy(value)
 
 
-def parse_stream(body: str) -> dict[str, Any]:
+def parse_stream(body: str, allowed_tools: set[str] | None = None) -> dict[str, Any]:
     response: dict[str, Any] = {}
     items: dict[int, dict[str, Any]] = {}
     closed: set[int] = set()
@@ -99,7 +113,7 @@ def parse_stream(body: str) -> dict[str, Any]:
                 "response.incomplete",
                 "response.failed",
             }:
-                incoming = validate_response(event["response"])
+                incoming = validate_response(event["response"], allowed_tools)
                 if response and (
                     kind == "response.created" or response["id"] != incoming["id"]
                 ):
@@ -130,7 +144,11 @@ def parse_stream(body: str) -> dict[str, Any]:
                     type(index) is not int
                     or index < 0
                     or not isinstance(item, dict)
-                    or item.get("type") not in {"message", "reasoning"}
+                    or item.get("type")
+                    not in (
+                        {"message", "reasoning"}
+                        | ({"function_call"} if allowed_tools is not None else set())
+                    )
                 ):
                     raise ValueError("unexpected or invalid no-tools item")
                 if index in closed or (kind.endswith("added") and index in items):
@@ -140,6 +158,17 @@ def parse_stream(body: str) -> dict[str, Any]:
                 items[index] = copy.deepcopy(item)
                 if kind.endswith("done"):
                     closed.add(index)
+            elif (
+                kind
+                in {
+                    "response.function_call_arguments.delta",
+                    "response.function_call_arguments.done",
+                }
+                and allowed_tools is not None
+            ):
+                field = "delta" if kind.endswith("delta") else "arguments"
+                if not isinstance(event.get(field), str):
+                    raise ValueError("invalid function arguments")
             elif kind in delta_types:
                 if not isinstance(event.get("delta"), str):
                     raise ValueError("non-text delta")

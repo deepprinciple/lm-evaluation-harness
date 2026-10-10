@@ -86,8 +86,7 @@ class SDEChatCompletion(LM):
             or int(batch_size) != 1
         ):
             raise ValueError("Invalid generation budget, thinking mode or batch_size")
-        if not os.environ.get(api_key_env, "").strip():
-            raise ValueError(f"API key not found in {api_key_env}")
+        self.validate_auth(api_key_env)
         self.model = model
         self.max_tokens = int(max_tokens)
         self.record_dir = Path(record_dir).resolve()
@@ -103,6 +102,13 @@ class SDEChatCompletion(LM):
             "max_attempts": int(max_attempts),
             "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         }
+
+    def validate_auth(self, api_key_env: str) -> None:
+        if not os.environ.get(api_key_env, "").strip():
+            raise ValueError(f"API key not found in {api_key_env}")
+
+    def get_api_key(self) -> str:
+        return os.environ[self.config["api_key_env"]].strip()
 
     @property
     def tokenizer_name(self) -> str:
@@ -261,7 +267,7 @@ class SDEChatCompletion(LM):
                     "elapsed_seconds": 0.0,
                     "finished": False,
                 }
-            key = os.environ[self.config["api_key_env"]].strip()
+            key = self.get_api_key()
             retryable = {
                 "transport_failed",
                 "protocol_error",

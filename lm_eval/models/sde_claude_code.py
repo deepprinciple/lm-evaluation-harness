@@ -40,6 +40,10 @@ def validate_runtime(
     ).strip()
     if actual.split()[0] != version:
         raise ValueError("Claude Code version does not match cli_version")
+    return {"cli_version": actual, **validate_tool_runtime(python)}
+
+
+def validate_tool_runtime(python: Path) -> dict[str, Any]:
     sandbox = Path(__file__).with_name("sde_sandbox.py")
     probe = """import socket
 from pathlib import Path
@@ -78,7 +82,6 @@ else:
     )
     return {
         "compute_packages": json.loads(packages),
-        "cli_version": actual,
         "tool_python_version": subprocess.check_output(
             [str(python), "--version"], text=True, timeout=15
         ).strip(),
