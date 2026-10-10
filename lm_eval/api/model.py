@@ -3,7 +3,16 @@ import hashlib
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Iterable, Optional, Type, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from tqdm import tqdm
 
@@ -13,7 +22,7 @@ from lm_eval import utils
 if TYPE_CHECKING:
     from sqlitedict import SqliteDict
 
-    from lm_eval.api.instance import Instance
+    from lm_eval.api.instance import GenerationResult, Instance
 
 
 eval_logger = logging.getLogger(__name__)
@@ -101,7 +110,7 @@ class LM(abc.ABC):
 
     # TODO: Add an optional max length
     @abc.abstractmethod
-    def generate_until(self, requests) -> list[str]:
+    def generate_until(self, requests) -> Sequence[Union[str, "GenerationResult"]]:
         """Generate greedily until a stopping sequence
 
         :param requests: list[Instance]
@@ -110,10 +119,10 @@ class LM(abc.ABC):
                 Context string
             gen_kwargs: dict
                 A dictionary of keyword arguments to pass to the generation function e.g. top_k, until, etc.
-        :return: list[str]
-            A list of model generated continuations.
-            continuation: str
-                The generated continuation.
+        :return: Sequence[str | GenerationResult]
+            A list of generated continuations, optionally with execution metadata.
+            Task filters and scoring receive only the generated text; metadata is
+            preserved separately in per-sample logs.
         """
         pass
 
