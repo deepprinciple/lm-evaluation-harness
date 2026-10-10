@@ -14,7 +14,6 @@ from lm_eval.models.sde_chat import save_record
 from lm_eval.models.sde_responses import parse_stream
 from lm_eval.models.sde_tools import TOOLS
 
-
 NAMESPACE = "mcp__sde_tools"
 FUNCTIONS = [
     {
@@ -106,7 +105,16 @@ def prepare_payload(body: dict[str, Any], model: str, effort: str, budget: int) 
     value["tools"] = copy.deepcopy(FUNCTIONS)
     value["tool_choice"] = "auto"
     # No native tools, deferred discovery or setup generation is forwarded.
+    history = []
     for item in value["input"]:
+        if isinstance(item, dict) and item.get("type") == "additional_tools":
+            if (
+                item.get("role") != "developer"
+                or not isinstance(item.get("tools"), list)
+                or set(item) - {"type", "id", "role", "tools"}
+            ):
+                raise ValueError("tool_profile_mismatch")
+            continue
         if not isinstance(item, dict) or item.get("type") not in {
             "message",
             "reasoning",
@@ -119,6 +127,8 @@ def prepare_payload(body: dict[str, Any], model: str, effort: str, budget: int) 
             and function_name(item) not in ALLOWED_TOOLS
         ):
             raise ValueError("tool_profile_mismatch")
+        history.append(item)
+    value["input"] = history
     map_functions(value["input"], False)
     return value
 
@@ -356,6 +366,12 @@ class ResponsesProxy(MessagesProxy):
             call["payload"] = prepare_payload(
                 incoming, self.api_model, self.effort, self.max_tokens
             )
+            if any(
+                item.get("type") == "additional_tools"
+                for item in incoming["input"]
+                if isinstance(item, dict)
+            ):
+                call["normalizations"].append("removed_inline_tool_declarations")
         except ValueError as exc:
             call["status"] = str(exc)
             self.persist(call)

@@ -243,6 +243,22 @@ def test_budget_and_tools_normalization_preserves_prompt_and_history():
     assert value["max_output_tokens"] == 128000 and value["tools"] == FUNCTIONS
 
 
+def test_inline_tool_declarations_are_removed_without_changing_history():
+    body = payload()
+    declaration = {
+        "type": "additional_tools",
+        "id": "cli-tools",
+        "role": "developer",
+        "tools": [{"type": "namespace", "name": "functions", "tools": []}],
+    }
+    body["input"].insert(0, declaration)
+    original = copy.deepcopy(body)
+    value = prepare_payload(body, "test-model", "max", 128000)
+    assert body == original
+    assert value["input"] == original["input"][1:]
+    assert value["tools"] == FUNCTIONS
+
+
 @pytest.mark.parametrize(
     "field,value,status",
     [
@@ -250,6 +266,28 @@ def test_budget_and_tools_normalization_preserves_prompt_and_history():
         ("reasoning", {"effort": "high"}, "budget_mismatch"),
         ("stream", False, "protocol_error"),
         ("input", [{"type": "tool_search_call"}], "tool_profile_mismatch"),
+        (
+            "input",
+            [{"type": "additional_tools", "role": "user", "tools": []}],
+            "tool_profile_mismatch",
+        ),
+        (
+            "input",
+            [{"type": "additional_tools", "role": "developer", "tools": "bad"}],
+            "tool_profile_mismatch",
+        ),
+        (
+            "input",
+            [
+                {
+                    "type": "additional_tools",
+                    "role": "developer",
+                    "tools": [],
+                    "content": "must stay",
+                }
+            ],
+            "tool_profile_mismatch",
+        ),
         (
             "input",
             [{"type": "function_call", "name": "shell"}],
