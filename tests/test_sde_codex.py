@@ -1037,7 +1037,8 @@ def test_real_subprocess_to_loopback_proxy_with_isolated_auth(
 
 def test_timeout_terminates_subprocess_and_retains_partial_trace(model, tmp_path):
     cli = fake_cli(tmp_path / "fake-codex", hang=True)
-    m = model(codex_bin=str(cli), timeout=1.0)
+    # Leave time for the fake Python CLI to start before testing termination.
+    m = model(codex_bin=str(cli), timeout=3.0)
     result = m.generate_until([request()])[0]
     assert result.metadata["status"] == "question_timeout"
     path = Path(result.metadata["record_path"])
