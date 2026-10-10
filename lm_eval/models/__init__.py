@@ -16,6 +16,7 @@ from . import (
     optimum_lm,
     sde_chat,
     sde_messages,
+    sde_responses,
     sglang_causallms,
     sglang_generate_API,
     textsynth,
