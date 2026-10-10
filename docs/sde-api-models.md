@@ -3,8 +3,9 @@
 `sde-chat-completions` is a no-tools DeepSeek Chat Completions adapter. It uses
 harness tasks, chat formatting, filters and metrics, and returns execution metadata
 alongside generated text. Legacy model registrations keep their existing behavior.
-The `sde-messages` adapter adds an Opus Messages SSE profile using the same
-request lifecycle. Responses and CLI agent adapters are not implemented yet.
+The `sde-messages` and `sde-responses` adapters add Opus Messages and Astra
+Responses SSE profiles using the same request lifecycle. CLI agent adapters are
+not implemented yet.
 
 ## Configuration
 
@@ -132,3 +133,78 @@ counts, parser errors and per-segment usage. The normal `usage` field describes
 the selected final message; it is not a claim about total relay billing. Full
 thinking and text live in the raw JSON/SSE files, not in the text sent to filters.
 Status-aware summaries and per-repeat accuracy aggregation remain pending.
+
+
+## Astra Responses SSE
+
+`sde-responses` ports the no-tools Astra payload from the existing Responses
+experiment. It is not Astra@Codex and does not use subscription authentication.
+The model is a configured string, not an alias resolved by the harness.
+
+The required arguments are `model`, `max_tokens` and `record_dir`. Defaults:
+`base_url=https://api.openai.com/v1/responses`, `api_key_env=OPENAI_API_KEY`,
+`effort=max`, four workers, 3600 seconds per question and three total attempts.
+Use the relay endpoint and your credential environment name explicitly. The
+harness `max_tokens`/`max_gen_toks` budget maps to `max_output_tokens` in the HTTP
+payload. It is not forwarded under both names. All role/content messages,
+including system prompts and few-shot examples, are retained in `input`.
+
+The payload sends `reasoning={effort: ...}` and `stream=true`, omitting temperature,
+seed, stop and tools. This preserves the old profile; the migration does not
+request extra reasoning summaries or encrypted reasoning, change the model,
+or launch a new run. No model-specific token ceiling is inferred.
+
+This is an example with an explicit budget, not a live compatibility test or
+claim that 128000 is the provider's maximum:
+
+```bash
+lm_eval --model sde-responses \
+  --model_args model=gpt-6-astra,max_tokens=128000,record_dir=results/astra_max/raw,base_url=https://mira.grecharge.ai/v1/responses,api_key_env=NEW_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3 \
+  --gen_kwargs max_tokens=128000 \
+  --tasks science_chem_quantum_software --limit 1 \
+  --apply_chat_template --log_samples --output_path results/astra_max
+```
+
+The event schemas were checked against the
+[OpenAI Responses streaming reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).
+The API distinguishes `response.completed`, `response.incomplete` and
+`response.failed`, and provides separate text, refusal and reasoning events.
+This documentation does not establish a third-party relay's current compatibility.
+
+The adapter accepts normal answers only from a valid `response.completed` event
+whose response status is `completed`, model ID matches, and reasoning effort
+matches the requested effort. The optional relay `[DONE]` sentinel cannot replace
+that event. It rejects duplicate terminal events, response restarts, changed
+response identity/model, replayed sequence numbers when supplied, malformed
+SSE frames, contradictory statuses and unexpected tool output. It permits a
+terminal-only stream without requiring omitted optional intermediate events.
+
+A completed response's output is authoritative. Text deltas are preserved as
+stream evidence and are not an answer fallback when terminal output is empty.
+This intentionally tightens the old script's delta fallback. Effort mismatch,
+malformed protocol, empty output, 524, transport failure and incomplete generation
+use the existing bounded technical retry policy. As in the other profiles,
+refusals and token truncation are terminal, and scientific scores are never
+consulted to select an attempt. `response.incomplete` with reason
+`max_output_tokens` is recorded as truncated; content filtering or a refusal
+content block is recorded as refusal. Explicit failed/error events are recorded
+as technical failures with the provider's error preserved.
+
+The adapter records all returned reasoning items, encrypted fields, summary/text
+deltas, output items, usage and the raw SSE. It cannot recover reasoning text
+that the provider does not disclose. A reasoning token count is not a transcript;
+a summary is not the full reasoning; encrypted content is not readable text.
+The echoed effort is a protocol check, not proof of the amount of computation.
+
+`response_metadata` adds `returned_effort` and per-attempt `stream_metadata`
+with SSE paths, response IDs, terminal events, optional sentinels, event counts
+and parser errors. Complete/partial usage remains under the existing `usage` and
+`attempt_usage` fields when returned. Partial stream fragments never enter the
+original task filters as completed answers.
+
+Opus and Astra share `sde_stream.py` for SSE framing and durable capture. The
+Opus payload and bounded request lifecycle remain unchanged; both streaming
+profiles record the shared helper's checksum so resume identities include that
+implementation. The JSON and SSE files have the same persistence limitations
+already described above. Historical results remain untouched; use a fresh record
+directory for a new experiment under a revised implementation.
