@@ -27,6 +27,7 @@ from lm_eval.evaluator_utils import (
 )
 from lm_eval.loggers import EvaluationTracker
 from lm_eval.loggers.utils import add_env_info, add_tokenizer_info, get_git_commit_hash
+from lm_eval.sde_reporting import collect_sde_results
 from lm_eval.tasks import TaskManager, get_task_dict
 from lm_eval.utils import (
     handle_non_serializable,
@@ -36,7 +37,6 @@ from lm_eval.utils import (
     setup_logging,
     simple_parse_args_string,
 )
-
 
 if TYPE_CHECKING:
     from lm_eval.api.model import LM
@@ -78,6 +78,7 @@ def simple_evaluate(
     fewshot_random_seed: int = 1234,
     confirm_run_unsafe_code: bool = False,
     metadata: Optional[dict] = None,
+    repeats: Optional[int] = None,
 ):
     """Instantiate and evaluate a model on a list of tasks.
 
@@ -142,12 +143,20 @@ def simple_evaluate(
         Random seed for fewshot sampler random generator. If set to None, the seed of generator will be set to None.
     :param metadata: dict
         Additional metadata to be added to the task manager. Will get passed to the download function of the task.
+    :param repeats: int, optional
+        Override the number of generations for generate_until tasks. Requires fresh request contexts.
     return
         Dictionary of results
     """
     if verbosity is not None:
         setup_logging(verbosity=verbosity)
     start_date = time.time()
+
+    if repeats is not None:
+        if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
+            raise ValueError("repeats must be a positive integer")
+        if cache_requests or rewrite_requests_cache:
+            raise ValueError("A repeats override cannot use the request cache")
 
     if limit is not None and samples is not None:
         raise ValueError(
@@ -292,6 +301,8 @@ def simple_evaluate(
 
             else:
                 if task_obj.get_config("output_type") == "generate_until":
+                    if repeats is not None:
+                        task_obj.set_config(key="repeats", value=repeats)
                     if gen_kwargs is not None:
                         task_obj.set_config(
                             key="generation_kwargs", value=gen_kwargs, update=True
@@ -402,6 +413,8 @@ def simple_evaluate(
             }
         )
         results["git_hash"] = get_git_commit_hash()
+        if repeats is not None:
+            results["config"]["repeats"] = repeats
         results["date"] = start_date
         add_env_info(results)  # additional environment info to results
         add_tokenizer_info(results, lm)  # additional info about tokenizer
@@ -463,6 +476,13 @@ def evaluate(
     :return
         Dictionary of results
     """
+
+    recorded_sde = getattr(lm, "sde_recorded_results", False)
+    if recorded_sde and (cache_requests or rewrite_requests_cache):
+        raise ValueError("SDE recorded evaluation cannot use the request cache")
+    if recorded_sde and lm.world_size != 1:
+        raise ValueError("SDE repeat reporting requires a single rank")
+    sde_reports = {}
 
     if limit is not None and samples is not None:
         raise ValueError(
@@ -592,6 +612,14 @@ def evaluate(
     for task_output, limit in zip(eval_tasks, limits):
         task = task_output.task
         task.apply_filters()
+        repeat_rows = {}
+        if recorded_sde:
+            selected = (
+                samples.get(task_output.task_name) if samples is not None else None
+            )
+            doc_id_map = dict(enumerate(sorted(set(selected)))) if selected else None
+            report, repeat_rows = collect_sde_results(task, doc_id_map)
+            sde_reports[task_output.task_name] = report
 
         ### Collect values of metrics on all datapoints ###
         # # unpack results and sort back in order and return control to Task
@@ -658,6 +686,8 @@ def evaluate(
                             req.response_metadata for req in requests
                         ]
                     example.update(metrics)
+                    if recorded_sde:
+                        example["repeat_results"] = repeat_rows[doc_id]
                     task_output.logged_samples.append(example)
                 for metric, value in metrics.items():
                     task_output.sample_metrics[(metric, filter_key)].append(value)
@@ -763,6 +793,8 @@ def evaluate(
                 for task_output, limit in zip(eval_tasks, limits)
             },
         }
+        if recorded_sde:
+            results_dict["sde"] = {"schema_version": 1, "tasks": sde_reports}
         if log_samples:
             # default: hash images
             samples = (

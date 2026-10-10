@@ -60,6 +60,8 @@ class SDEChatCompletion(LM):
     the required model_args fallback. Response caching is forbidden for repeats.
     """
 
+    sde_recorded_results = True
+
     def __init__(
         self,
         model: str,
