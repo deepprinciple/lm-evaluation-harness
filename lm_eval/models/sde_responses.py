@@ -94,7 +94,7 @@ def parse_stream(body: str, allowed_tools: set[str] | None = None) -> dict[str, 
                 if type(number) is not int or number <= sequence:
                     raise ValueError("invalid or replayed sequence_number")
                 sequence = number
-            if kind == "ping":
+            if kind in {"ping", "keepalive"}:
                 continue
             if terminal is not None:
                 raise ValueError("event after terminal response")

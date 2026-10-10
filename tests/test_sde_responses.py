@@ -350,6 +350,17 @@ def test_server_error_events_and_failed_responses_are_technical_failures():
         )
 
 
+def test_relay_keepalive_is_not_a_completion_or_parser_error():
+    rows = events()
+    rows.insert(2, {"type": "keepalive"})
+    result = parse_stream(stream(rows))
+    assert result["stream_error"] is None
+    assert result["terminal_event"] == "response.completed"
+    assert result["event_counts"]["keepalive"] == 1
+    incomplete = parse_stream(stream(rows[:-1]))
+    assert classify(incomplete, "gpt-6-astra", "max")[0] == "transport_failed"
+
+
 def test_payload_maps_budget_and_preserves_system_and_fewshot_messages(setup):
     model, _ = setup([])
     messages = [
