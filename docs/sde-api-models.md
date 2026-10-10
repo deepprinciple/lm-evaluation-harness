@@ -3,7 +3,8 @@
 `sde-chat-completions` is a no-tools DeepSeek Chat Completions adapter. It uses
 harness tasks, chat formatting, filters and metrics, and returns execution metadata
 alongside generated text. Legacy model registrations keep their existing behavior.
-Messages, Responses and CLI agent adapters are not implemented by this change.
+The `sde-messages` adapter adds an Opus Messages SSE profile using the same
+request lifecycle. Responses and CLI agent adapters are not implemented yet.
 
 ## Configuration
 
@@ -68,3 +69,66 @@ judge to classify them.
 
 This change does not add a status-aware benchmark summary or per-repeat accuracy
 aggregation. A task's existing filters still determine which repeat is scored.
+
+
+## Opus Messages SSE
+
+`sde-messages` ports the no-tools payload and conservative relay handling from
+our existing Opus evaluation scripts. It is not the Claude Code agent harness.
+The shared SDE runtime still supplies deadlines, bounded technical retries,
+locking, independent repeat identities and atomic JSON records.
+
+The required arguments remain `model`, `max_tokens` and `record_dir`. Defaults:
+`base_url=https://api.anthropic.com/v1/messages`,
+`api_key_env=ANTHROPIC_API_KEY`, `effort=max`,
+`anthropic_version=2023-06-01`, four workers, 3600 seconds per question and three
+attempts. Override the endpoint and credential environment name for a relay.
+
+The Messages profile sends `output_config.effort`, `max_tokens` and `stream=true`.
+It does not forward DeepSeek thinking fields, temperature, seed, stop or tools.
+Leading system messages become top-level text blocks; user/assistant few-shot
+messages retain their contents. A system message appearing after conversation
+has begun is rejected. This ports the earlier payload without adding an explicit
+thinking toggle. Requested effort is recorded, but an endpoint accepting a
+parameter does not prove its reasoning behavior; only returned thinking is saved.
+
+Example only; neither this migration nor its tests call a live provider:
+
+```bash
+lm_eval --model sde-messages \
+  --model_args model=claude-opus-5-5,max_tokens=128000,record_dir=results/opus_max/raw,base_url=https://mira.grecharge.ai/v1/messages,api_key_env=ANTHROPIC_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3 \
+  --gen_kwargs max_tokens=128000 \
+  --tasks science_chem_quantum_software --limit 1 \
+  --apply_chat_template --log_samples --output_path results/opus_max
+```
+
+128000 is an explicit example budget, not an inferred or verified provider maximum.
+The harness override precedence above applies here too.
+
+Each attempt writes a redacted `.attemptNN.sse` sidecar beside its JSON record.
+Complete lines are flushed while the request is running; the final partial line
+is flushed on normal exit, transport failure or timeout. Abrupt process termination
+may lose the last incomplete line; already flushed lines remain on disk. As in the
+shared runtime, an interrupted attempt consumes an attempt on resume, rather than
+silently resubmitting outside the budget. SSE files are evidence, not an additional
+answer cache.
+
+The parser reconstructs text, thinking, signatures, redacted thinking and usage.
+A normal answer requires a closed, well-formed message, `message_stop`,
+`stop_reason=end_turn` and the requested returned model ID. Missing end markers
+and stream overload errors are technical failures. Malformed control fields,
+unclosed frames and unexpected tool calls are protocol errors. Model mismatch is
+terminal, as are explicit refusal and token truncation; neither scientific scores
+nor free-text refusal keywords drive retry selection.
+
+A distinct same-model assistant message can supersede a previous segment only
+when that segment contains unfinished thinking, no text/tool blocks, no stop
+reason and no completed-message marker. All segments and their usage remain in
+the raw record. A restart after any answer text or completed generation is
+ambiguous and is not accepted. The parser never combines answers across segments.
+
+`response_metadata.stream_metadata` records the SSE paths, closure checks, event
+counts, parser errors and per-segment usage. The normal `usage` field describes
+the selected final message; it is not a claim about total relay billing. Full
+thinking and text live in the raw JSON/SSE files, not in the text sent to filters.
+Status-aware summaries and per-repeat accuracy aggregation remain pending.
