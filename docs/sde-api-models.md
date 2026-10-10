@@ -4,8 +4,9 @@
 harness tasks, chat formatting, filters and metrics, and returns execution metadata
 alongside generated text. Legacy model registrations keep their existing behavior.
 The `sde-messages` and `sde-responses` adapters add Opus Messages and Astra
-Responses SSE profiles using the same request lifecycle. CLI agent adapters are
-not implemented yet.
+Responses SSE profiles using the same request lifecycle. `sde-claude-code`
+adds a recorded Claude Code CLI agent with shared MCP tools. The Codex CLI adapter
+is not implemented yet.
 
 ## Configuration
 
@@ -208,3 +209,118 @@ profiles record the shared helper's checksum so resume identities include that
 implementation. The JSON and SSE files have the same persistence limitations
 already described above. Historical results remain untouched; use a fresh record
 directory for a new experiment under a revised implementation.
+
+
+## Claude Code CLI agent
+
+`sde-claude-code` launches a fresh Claude Code process for each question attempt.
+This is an API-key profile for Flash or Opus, not a subscription profile. It keeps
+the original task/filter/metric pipeline and returns only a successful CLI result
+to scoring. It preserves every attempt's trace, stderr, effective Messages payload,
+raw HTTP/SSE, returned thinking, tool requests and tool results. The API capture
+includes Claude Code's effective system prompt and advertised tool schemas.
+
+Required arguments: `model` (CLI ID), `api_model` (actual Messages ID),
+`max_tokens`, `record_dir`, `claude_bin`, exact `cli_version`, `tool_python`, and
+`base_url` (provider root, not the full `/v1/messages` URL). Default authentication
+is `ANTHROPIC_API_KEY`; select `DEEPSEEK_API_KEY` for Flash. The MCP server requires
+`SERPAPI_API_KEY` and `JINA_API_KEY`. Keys enter the child environment and proxy
+headers only; request logs, traces and tool results redact exact secret strings.
+For an npm CLI, specify `node_bin` so the sanitized child PATH uses its intended
+Node installation. The CLI version and binary hash, optional Node version/hash,
+Python version, compute package versions and adapter/helper hashes are recorded.
+
+The constructor makes no model requests. It checks `claude --version`, records
+NumPy/SciPy/SymPy/RDKit/requests versions, and runs an offline filesystem/network
+isolation probe using the selected compute Python. The run requires Linux x86_64
+with Landlock ABI >= 3 and seccomp. It fails before evaluation if that probe fails;
+it does not silently replace the Linux computation environment with Mac shell.
+Local Mac tests cover mocked CLI processes, local HTTP forwarding and budget
+logic; they do not establish that a remote container supports isolation.
+
+The CLI uses `--tools ""`, only the `sde_tools` MCP server and three allowed tools:
+`web_search`, `read_url`, `run_shell`. Native web/shell/file tools, additional agents
+and user/project settings are excluded by the command and isolated HOME. Init
+traces and observed tool calls are checked; unexpected tools are a terminal
+`tool_profile_mismatch`. Claude Code's internal `EndConversation` may appear as
+conversation control; it is not an additional search or compute tool. Managed
+machine policy cannot be removed by this adapter; actual prompts and tool schemas
+are captured, and real CLI compatibility remains a preflight requirement.
+CLI flags were checked against the
+[Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference).
+
+All runs use the same MCP schema and implementation:
+
+- Google/SerpAPI: three backend attempts per question, including failures, with
+  a file-locked atomic counter shared across CLI retries and process restarts.
+  Results contain at most eight title/URL/snippet entries, without an LLM summary.
+- Jina: public HTTP(S) input URLs, benchmark/private input sources excluded, at
+  most 32000 returned characters. Redirect following by Jina remains provider
+  behavior; the adapter validates the original URL rather than claiming control
+  over the reader's full internal retrieval path.
+- Linux compute: the existing Landlock/seccomp launcher, no shell network or
+  benchmark files, one thread, 60 CPU seconds, 2 GiB address space, 20 MiB file
+  limit, 70-second wall limit, stdout/stderr bounded to 24000/8000 characters.
+  The tail read is bounded in bytes before decoding and slicing; incomplete UTF-8
+  at its starting boundary is replaced.
+
+The x86_64 seccomp launcher also blocks the x32 syscall ABI. Its readable runtime
+roots include system binaries/libraries and the selected Python runtime/venv;
+keep datasets, answer keys and prior results outside those roots. Each question
+attempt has its own compute directory. A normal deadline/cancellation terminates
+the CLI process group and gives the MCP server a short cleanup window to terminate
+its compute group. Abrupt OS kills can bypass cleanup and final partial-line
+flushes; flushed evidence survives, but the adapter does not claim transactional
+process cleanup after a power loss.
+
+The adapter defaults to `effort=max`, four workers, 3600 seconds per question and
+three total attempts using the same runtime as the API adapters. Queue wait is
+excluded, while started attempts, tools and backoff share one deadline. The
+inherited backoff is 2/4 seconds for the two retries; the older draft protocol's
+5/15 seconds has not been installed by this migration. There is no CLI turn or
+main-request count limit and no per-question total token cap. `max_tokens` remains
+a per-response budget and is inherited from harness kwargs using the same
+precedence as the API adapters.
+
+A transparent loopback proxy forwards Messages bodies unchanged. It checks the
+actual outgoing model, `max_tokens` and `output_config.effort`, and rejects native
+or additional tool definitions. A smaller or larger CLI budget is recorded as
+terminal `budget_mismatch`, not silently rewritten or claimed to be matched.
+Model mismatch is terminal. This strict profile also applies to any CLI helper
+or compaction generation; incompatibility needs review rather than an unnoticed
+exception. Requests and raw returned thinking are retained even if the CLI fails.
+Closed Messages streams may end in a tool call; final scoring still requires the
+CLI's unique successful result and a zero process exit code. Refusal, token/context
+limits, turn limits and configuration mismatches do not trigger technical retry.
+Scientific correctness or answer-format extraction never selects a retry.
+
+Any observable upstream transport/protocol failure ends that CLI attempt and
+blocks further proxy forwarding, preventing the CLI's nested transport retries
+from bypassing the outer attempt budget. Observable 401/403 stops the batch under
+the common runtime. Hidden retries inside the provider cannot be counted. An
+interrupted process consumes its attempt on resume; already spent search attempts
+stay spent. Resume restarts a new isolated CLI attempt; it does not restore a
+partial Claude conversation. New independent experiments require a fresh
+`record_dir`.
+
+A single user question is passed unchanged on stdin. Leading harness system
+messages are appended as instructions. Few-shot user/assistant histories are
+preserved as labelled role/content JSON within the CLI input; this is not a claim
+that CLI history has the same API-level roles as the no-tools Messages profile.
+
+Example only, with locally installed paths and an explicitly pinned CLI version:
+
+```bash
+lm_eval --model sde-claude-code \
+  --model_args 'model=deepseek-flash[1m],api_model=deepseek-flash,max_tokens=128000,record_dir=results/flash_cc_max/raw,claude_bin=/opt/sde/claude,cli_version=2.1.296,tool_python=/opt/sde/tools-venv/bin/python,node_bin=/opt/sde/node/bin/node,base_url=https://api.deepseek.com/anthropic,api_key_env=DEEPSEEK_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3' \
+  --gen_kwargs max_tokens=128000 \
+  --tasks science_chem_quantum_software --limit 1 \
+  --apply_chat_template --log_samples --output_path results/flash_cc_max
+```
+
+For Opus, explicitly select the CLI and API model `claude-opus-5-5`, relay root
+`https://mira.grecharge.ai` and its credential environment. This example is not
+an executed experiment, deployment instruction or verified third-party endpoint
+compatibility. CLI output limits, tool connection and actual effort need a
+separately authorized live smoke test. Status summaries, repeat accuracy
+aggregation and the Codex adapter remain pending.
