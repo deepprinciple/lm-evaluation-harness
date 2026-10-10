@@ -69,8 +69,59 @@ retaining the actual provider output in raw records. Free-text refusals without 
 provider refusal signal remain ordinary text; this adapter does not use an LLM
 judge to classify them.
 
-This change does not add a status-aware benchmark summary or per-repeat accuracy
-aggregation. A task's existing filters still determine which repeat is scored.
+## Independent repeats and status-aware accuracy
+
+`--repeats N` overrides the task YAML's repeat count for `generate_until` tasks;
+omitting it preserves the YAML value. The effective count is saved in task configs.
+Use fresh request contexts: recorded SDE models reject `--cache_requests`, whose
+cached Instances can retain an old repeat count or generation budget. Ordinary
+model registrations retain their original filtering and result schema.
+
+For example, to prepare a six-draw DeepSeek evaluation with the same 128000-token
+budget on each draw (this command has not been executed):
+
+```bash
+lm_eval --model sde-chat-completions \
+  --model_args model=deepseek-flash,max_tokens=128000,record_dir=results/flash_max_repeat6/raw,reasoning_effort=max \
+  --gen_kwargs max_tokens=128000 --repeats 6 \
+  --tasks science_chem_quantum_software --apply_chat_template \
+  --log_samples --output_path results/flash_max_repeat6
+```
+
+All recorded SDE adapters add `sde.schema_version=1` and a `sde.tasks` object to
+the aggregated results JSON. Each task contains:
+
+- `request_status_counts`: final statuses across all requests and draws, counted
+  once per request rather than once per filter. These are not retry-attempt counts.
+- `repeats`: one entry per draw, with document counts, document-level
+  `status_counts`, and `completed_doc_ids`. A document is completed only if all
+  its requests have status `ok`; mixed failure kinds use `mixed_incomplete`.
+- `metrics_all_documents`: original task filters/scoring/aggregation applied
+  independently to this draw, with incomplete documents receiving zero credit.
+- `metrics_completed_documents`: scores restricted to documents with `ok`
+  responses; values are `null` if no documents completed.
+- `across_repeats`: the unweighted mean and sample standard deviation of each
+  draw's scores, plus `scored_repeats`. Standard deviation is `null` for fewer
+  than two scores. Completed-only cohorts can differ between draws; this is a
+  descriptive summary, not an estimate on a fixed common subset.
+
+Sample JSONL entries additionally contain `repeat_results`, including each draw's
+original document ID, request statuses, filtered answers and scalar scores. Use
+these to intersect completed document IDs across models before making a common-
+subset comparison. Correct and incorrect ordinary answers both remain completed;
+missing answer tags do not become technical failures. No best-of-N selection,
+majority vote, LLM judge or automatic domain reweighting is performed.
+
+The existing terminal table and top-level `results` are preserved. They still
+follow the original filters (usually `take_first`) and must not be interpreted as
+six-draw averages. Use `sde.tasks` for independent-draw comparisons. With
+`--predict_only`, only status/count reporting is added; repeat metrics stay empty.
+
+This additional reporting supports single-rank SDE generation with scalar
+accuracy/partial-credit metrics. It is not a general pooled BLEU/perplexity or
+multi-rank evaluator. No API call is made by reporting; it rescores saved text
+already returned in this evaluation. Actual provider/CLI compatibility and full
+evaluation results still require separately authorized live runs.
 
 
 ## Opus Messages SSE
@@ -133,7 +184,8 @@ ambiguous and is not accepted. The parser never combines answers across segments
 counts, parser errors and per-segment usage. The normal `usage` field describes
 the selected final message; it is not a claim about total relay billing. Full
 thinking and text live in the raw JSON/SSE files, not in the text sent to filters.
-Status-aware summaries and per-repeat accuracy aggregation remain pending.
+Status-aware summaries and per-repeat accuracy use the shared reporting described
+above; thinking text is not included in scored answers.
 
 
 ## Astra Responses SSE
@@ -322,8 +374,8 @@ For Opus, explicitly select the CLI and API model `claude-opus-5-5`, relay root
 `https://mira.grecharge.ai` and its credential environment. This example is not
 an executed experiment, deployment instruction or verified third-party endpoint
 compatibility. CLI output limits, tool connection and actual effort need a
-separately authorized live smoke test. Status summaries, repeat accuracy
-aggregation remain pending.
+separately authorized live smoke test. Status summaries and repeat accuracy use
+the shared reporting described above.
 
 
 ## Codex CLI agent
@@ -446,4 +498,4 @@ Codex CLI against mocked model/MCP services with fake credentials. Those CLI pro
 may attempt authentication control-plane refresh with the fake tokens; they do
 not call a live model or use personal credentials. A separately authorized live
 smoke test is still required before full evaluation. Status-aware summaries and
-per-repeat accuracy aggregation remain pending.
+per-repeat accuracy use the shared reporting described above.
