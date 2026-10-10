@@ -1,9 +1,7 @@
 """Recorded no-tools Messages SSE using the shared SDE request lifecycle."""
 
-import asyncio
 import copy
 import hashlib
-import os
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -11,12 +9,11 @@ from typing import Any
 from lm_eval.api.instance import GenerationResult, Instance
 from lm_eval.api.registry import register_model
 from lm_eval.models.sde_chat import SDEChatCompletion
+from lm_eval.models.sde_stream import capture_stream, sse_events, stream_sha256
 
 
 def parse_stream(body: str, expected_model: str) -> dict[str, Any]:
     """Keep complete/partial segments; only supersede unfinished thinking."""
-    import json
-
     message: dict[str, Any] = {}
     blocks: dict[int, dict[str, Any]] = {}
     closed: set[int] = set()
@@ -35,25 +32,8 @@ def parse_stream(body: str, expected_model: str) -> dict[str, Any]:
         }
 
     try:
-        frames = body.replace("\r\n", "\n").replace("\r", "\n").split("\n\n")
-        for position, frame in enumerate(frames):
-            data = []
-            event_name = None
-            for line in frame.split("\n"):
-                if line.startswith("data:"):
-                    data.append(line[5:].lstrip(" "))
-                elif line.startswith("event:"):
-                    event_name = line[6:].strip()
-            if not data:
-                continue
-            if position == len(frames) - 1:
-                raise ValueError("unterminated SSE frame")
-            event = json.loads("\n".join(data))
-            if not isinstance(event, dict):
-                raise ValueError("SSE data must be an object")
+        for event in sse_events(body):
             kind = event["type"]
-            if event_name is not None and event_name != kind:
-                raise ValueError("SSE event/data type mismatch")
             counts[kind] += 1
             if kind == "ping":
                 continue
@@ -231,6 +211,7 @@ class SDEMessages(SDEChatCompletion):
             api_format="messages",
             effort=effort,
             anthropic_version=anthropic_version,
+            stream_sha256=stream_sha256(),
             adapter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         )
 
@@ -286,73 +267,25 @@ class SDEMessages(SDEChatCompletion):
     async def request_once(
         self, session: Any, payload: dict[str, Any], key: str, attempt: dict[str, Any]
     ) -> None:
-        import aiohttp
-
-        body_path = Path(attempt["record_path"]).with_suffix(
-            f".attempt{attempt['attempt']:02d}.sse"
-        )
-        attempt["body_path"] = str(body_path)
-        chunks = []
-        pending = b""
-        with body_path.open("w", encoding="utf-8") as raw:
-            try:
-                async with session.post(
-                    self.config["base_url"],
-                    json=payload,
-                    headers={
-                        "x-api-key": key,
-                        "anthropic-version": self.config["anthropic_version"],
-                    },
-                ) as response:
-                    attempt["http_status"] = response.status
-                    async for chunk in response.content.iter_chunked(65536):
-                        chunks.append(chunk)
-                        pending += chunk
-                        lines = pending.split(b"\n")
-                        pending = lines.pop()
-                        for line in lines:
-                            raw.write(
-                                line.decode("utf-8", errors="replace").replace(
-                                    key, "<redacted>"
-                                )
-                                + "\n"
-                            )
-                        raw.flush()
-                code = attempt["http_status"]
-                if code != 200:
-                    attempt["status"] = (
-                        "transport_failed"
-                        if code in (408, 429) or code >= 500
-                        else "http_error"
-                    )
-            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-                attempt.update(status="transport_failed", error=type(exc).__name__)
-            except asyncio.CancelledError:
-                attempt.update(status="transport_failed", error="CancelledError")
-                raise
-            finally:
-                raw.write(
-                    pending.decode("utf-8", errors="replace").replace(key, "<redacted>")
-                )
-                raw.flush()
-                os.fsync(raw.fileno())
-                captured = b"".join(chunks)
-                try:
-                    body = captured.decode("utf-8")
-                except UnicodeDecodeError:
-                    body = captured.decode("utf-8", errors="replace")
-                    if attempt["status"] == "running":
-                        attempt.update(
-                            status="protocol_error", error="UnicodeDecodeError"
-                        )
-                body = body.replace(key, "<redacted>")
-                attempt["body"] = body
-                if attempt.get("http_status") == 200:
-                    parsed = parse_stream(body, self.model)
-                    attempt.update(parsed)
-                    status, answer = classify(parsed, self.model)
-                    attempt["answer"] = answer
-                    # A transport error/cancellation takes precedence even if a
-                    # completed-looking message preceded a truncated HTTP body.
-                    if attempt["status"] == "running":
-                        attempt["status"] = status
+        try:
+            await capture_stream(
+                session,
+                self.config["base_url"],
+                payload,
+                {
+                    "x-api-key": key,
+                    "anthropic-version": self.config["anthropic_version"],
+                },
+                key,
+                attempt,
+            )
+        finally:
+            if attempt.get("http_status") == 200:
+                parsed = parse_stream(attempt["body"], self.model)
+                attempt.update(parsed)
+                status, answer = classify(parsed, self.model)
+                attempt["answer"] = answer
+                # Transport failure or cancellation takes precedence over any
+                # completed-looking message in the captured partial HTTP body.
+                if attempt["status"] == "running":
+                    attempt["status"] = status
