@@ -12,7 +12,9 @@ from lm_eval.models.sde_chat import SDEChatCompletion
 from lm_eval.models.sde_stream import capture_stream, sse_events, stream_sha256
 
 
-def parse_stream(body: str, expected_model: str) -> dict[str, Any]:
+def parse_stream(
+    body: str, expected_model: str, *, agent_mode: bool = False
+) -> dict[str, Any]:
     """Keep complete/partial segments; only supersede unfinished thinking."""
     message: dict[str, Any] = {}
     blocks: dict[int, dict[str, Any]] = {}
@@ -102,7 +104,12 @@ def parse_stream(body: str, expected_model: str) -> dict[str, Any]:
                     "input_json_delta": ("tool_use", "partial_json"),
                 }
                 content_type, field = fields[delta["type"]]
-                if content["type"] != content_type or not isinstance(delta[field], str):
+                compatible = content["type"] == content_type or (
+                    agent_mode
+                    and delta["type"] == "input_json_delta"
+                    and content["type"] == "server_tool_use"
+                )
+                if not compatible or not isinstance(delta[field], str):
                     raise ValueError("incompatible content delta")
                 content[field] = content.get(field, "") + delta[field]
             elif kind == "content_block_stop":

@@ -331,6 +331,49 @@ def test_wrong_model_and_tools_are_not_normal_answers():
     )
 
 
+def test_server_tool_json_deltas_require_explicit_agent_mode():
+    items = [
+        start(),
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "server_tool_use",
+                "id": "search_1",
+                "name": "web_search",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": '{"query":'},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": '"science"}'},
+        },
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+        {"type": "message_stop"},
+    ]
+    body = stream(items)
+    assert parse_stream(body, "claude-opus-5-5")["stream_error"] is not None
+    parsed = parse_stream(body, "claude-opus-5-5", agent_mode=True)
+    assert parsed["stream_error"] is None
+    assert parsed["response"]["content"][0]["partial_json"] == '{"query":"science"}'
+    assert parsed["message_stop"] and parsed["blocks_closed"]
+    assert classify(parsed, "claude-opus-5-5")[0] == "protocol_error"
+
+
+def test_agent_mode_does_not_relax_delta_type_or_stream_completion():
+    items = events()
+    items[1]["content_block"]["type"] = "server_tool_use"
+    parsed = parse_stream(stream(items), "claude-opus-5-5", agent_mode=True)
+    assert parsed["stream_error"] is not None
+
+
 def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
     model, _ = setup([])
     messages = [

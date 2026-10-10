@@ -626,3 +626,331 @@ def test_effort_mismatch_is_recorded_and_only_bounded_technical_retries_apply(se
     assert len(session.payloads) == 2
     assert record(output)["attempts"][0]["response"]["reasoning"]["effort"] == "high"
     assert record(output)["attempts"][0]["status"] == "protocol_error"
+
+
+NATIVE_ITEMS: list[dict[str, Any]] = [
+    {
+        "type": "function_call",
+        "id": "f1",
+        "call_id": "c1",
+        "name": "exec_command",
+        "namespace": "functions",
+        "arguments": '{"cmd":"pwd"}',
+        "status": "completed",
+    },
+    {
+        "type": "custom_tool_call",
+        "id": "p1",
+        "call_id": "c2",
+        "name": "apply_patch",
+        "namespace": "another_plugin",
+        "input": "*** Begin Patch\n*** End Patch",
+    },
+    {
+        "type": "web_search_call",
+        "id": "w1",
+        "status": "completed",
+        "action": {"type": "search", "queries": ["science"]},
+    },
+    {
+        "type": "code_interpreter_call",
+        "id": "ci1",
+        "status": "completed",
+        "container_id": "container_1",
+        "code": "print(2)",
+        "outputs": [{"type": "logs", "logs": "2"}],
+    },
+    {
+        "type": "file_search_call",
+        "id": "fs1",
+        "status": "completed",
+        "queries": ["science"],
+        "results": [],
+    },
+    {
+        "type": "mcp_call",
+        "id": "m1",
+        "name": "unfamiliar_valid_tool",
+        "server_label": "other_server",
+        "arguments": "{}",
+        "output": "result",
+        "status": "completed",
+    },
+    {
+        "type": "shell_call",
+        "id": "s1",
+        "call_id": "c3",
+        "status": "completed",
+        "action": {"commands": ["pwd"]},
+    },
+    {
+        "type": "computer_call",
+        "id": "pc1",
+        "call_id": "c4",
+        "status": "completed",
+        "action": {"type": "screenshot"},
+        "pending_safety_checks": [],
+    },
+    {
+        "type": "tool_search_call",
+        "id": "ts1",
+        "status": "completed",
+        "execution": "server",
+        "arguments": {"query": "science"},
+    },
+    {
+        "type": "tool_search_output",
+        "id": "to1",
+        "status": "completed",
+        "execution": "server",
+        "tools": [{"type": "function", "name": "any_name", "parameters": {}}],
+    },
+    {
+        "type": "image_generation_call",
+        "id": "im1",
+        "status": "completed",
+        "result": "base64",
+    },
+    {
+        "type": "apply_patch_call",
+        "id": "ap1",
+        "call_id": "c5",
+        "status": "completed",
+        "operation": {"type": "delete_file", "path": "temporary.txt"},
+    },
+    {
+        "type": "program",
+        "id": "prog1",
+        "call_id": "c6",
+        "code": "await tools.any_name()",
+        "fingerprint": "opaque",
+    },
+    {
+        "type": "program_output",
+        "id": "po1",
+        "call_id": "c6",
+        "status": "completed",
+        "result": "value",
+    },
+    {
+        "type": "additional_tools",
+        "id": "at1",
+        "role": "developer",
+        "tools": [{"type": "namespace", "name": "functions", "tools": []}],
+    },
+]
+
+
+def native_events(item, extra=()):
+    final = response()
+    final["output"] = [copy.deepcopy(item)]
+    initial = {**final, "status": "in_progress", "output": []}
+    added = copy.deepcopy(item)
+    if "status" in added:
+        added["status"] = "in_progress"
+    if added["type"] in {"function_call", "mcp_call"}:
+        added["arguments"] = ""
+    if added["type"] == "custom_tool_call":
+        added["input"] = ""
+    return [
+        {"type": "response.created", "response": initial},
+        {"type": "response.output_item.added", "output_index": 0, "item": added},
+        *extra,
+        {"type": "response.output_item.done", "output_index": 0, "item": item},
+        {"type": "response.completed", "response": final},
+    ]
+
+
+@pytest.mark.parametrize("item", NATIVE_ITEMS, ids=lambda item: item["type"])
+def test_agent_mode_accepts_native_items_without_relaxing_no_tools(item):
+    body = stream(native_events(item))
+    parsed = parse_stream(body, agent_mode=True)
+    assert parsed["stream_error"] is None
+    assert parsed["terminal_event"] == "response.completed"
+    assert parsed["response"]["output"] == [item]
+    assert parsed["output_items"] == [item]
+    assert parse_stream(body)["stream_error"] is not None
+
+
+@pytest.mark.parametrize(
+    "item,event",
+    [
+        (
+            NATIVE_ITEMS[0],
+            {"type": "response.function_call_arguments.delta", "delta": '{"cmd":'},
+        ),
+        (
+            NATIVE_ITEMS[0],
+            {
+                "type": "response.function_call_arguments.done",
+                "arguments": '{"cmd":"pwd"}',
+            },
+        ),
+        (
+            NATIVE_ITEMS[1],
+            {
+                "type": "response.custom_tool_call_input.delta",
+                "delta": "*** Begin Patch",
+            },
+        ),
+        (
+            NATIVE_ITEMS[1],
+            {
+                "type": "response.custom_tool_call_input.done",
+                "input": "*** Begin Patch\n*** End Patch",
+            },
+        ),
+        (NATIVE_ITEMS[2], {"type": "response.web_search_call.in_progress"}),
+        (NATIVE_ITEMS[2], {"type": "response.web_search_call.searching"}),
+        (NATIVE_ITEMS[2], {"type": "response.web_search_call.completed"}),
+        (
+            NATIVE_ITEMS[3],
+            {"type": "response.code_interpreter_call_code.delta", "delta": "print(2)"},
+        ),
+        (
+            NATIVE_ITEMS[3],
+            {"type": "response.code_interpreter_call_code.done", "code": "print(2)"},
+        ),
+        (NATIVE_ITEMS[3], {"type": "response.code_interpreter_call.interpreting"}),
+        (NATIVE_ITEMS[4], {"type": "response.file_search_call.searching"}),
+        (
+            NATIVE_ITEMS[5],
+            {"type": "response.mcp_call_arguments.done", "arguments": "{}"},
+        ),
+        (NATIVE_ITEMS[5], {"type": "response.mcp_call.completed"}),
+        (
+            NATIVE_ITEMS[6],
+            {
+                "type": "response.shell_call_command.delta",
+                "command_index": 0,
+                "delta": "pwd",
+            },
+        ),
+        (
+            NATIVE_ITEMS[10],
+            {
+                "type": "response.image_generation_call.partial_image",
+                "partial_image_index": 0,
+                "partial_image_b64": "base64",
+            },
+        ),
+    ],
+    ids=lambda value: value["type"],
+)
+def test_agent_mode_records_real_native_events(item, event):
+    event = {"output_index": 0, "item_id": item["id"], **event}
+    parsed = parse_stream(stream(native_events(item, [event])), agent_mode=True)
+    assert parsed["stream_error"] is None
+    assert parsed["event_counts"][event["type"]] == 1
+    assert parsed["tool_events"][0]["type"] == event["type"]
+    assert parsed["tool_events"][0]["item_id"] == item["id"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "bad_name",
+        "bad_namespace",
+        "bad_arguments",
+        "missing_call_id",
+        "bad_status",
+        "changed_item_id",
+        "changed_type",
+        "wrong_terminal_item",
+        "wrong_terminal_arguments",
+        "bad_index",
+        "wrong_event_item",
+        "bad_delta",
+        "unknown_event",
+        "replayed_sequence",
+        "changed_response_id",
+        "bad_response_status",
+        "after_terminal",
+        "after_done",
+        "unknown_output",
+    ],
+)
+def test_agent_mode_rejects_malformed_protocol(change):
+    item = copy.deepcopy(NATIVE_ITEMS[0])
+    extra = {
+        "type": "response.function_call_arguments.delta",
+        "item_id": item["id"],
+        "output_index": 0,
+        "delta": "{}",
+    }
+    rows = native_events(item, [extra])
+    if change == "bad_name":
+        item["name"] = None
+    elif change == "bad_namespace":
+        item["namespace"] = 42
+    elif change == "bad_arguments":
+        item["arguments"] = {}
+    elif change == "missing_call_id":
+        item.pop("call_id")
+    elif change == "bad_status":
+        item["status"] = "invented"
+    elif change == "changed_item_id":
+        rows[3]["item"] = {**item, "id": "other"}
+    elif change == "changed_type":
+        rows[3]["item"] = NATIVE_ITEMS[1]
+    elif change == "wrong_terminal_item":
+        rows[-1]["response"]["output"] = [NATIVE_ITEMS[1]]
+    elif change == "wrong_terminal_arguments":
+        rows[-1]["response"]["output"][0]["arguments"] = "different"
+    elif change == "bad_index":
+        extra["output_index"] = True
+    elif change == "wrong_event_item":
+        extra["item_id"] = "other"
+    elif change == "bad_delta":
+        extra["delta"] = {}
+    elif change == "unknown_event":
+        extra["type"] = "response.unknown_tool_event"
+    elif change == "changed_response_id":
+        rows[-1]["response"]["id"] = "other"
+    elif change == "bad_response_status":
+        rows[-1]["response"]["status"] = "in_progress"
+    elif change == "after_terminal":
+        rows.append(extra)
+    elif change == "unknown_output":
+        rows[-1]["response"]["output"] = [{"type": "invented_call", "id": "x"}]
+    body = stream(rows)
+    if change == "after_done":
+        body += stream([extra])
+    elif change == "replayed_sequence":
+        body = body.replace('"sequence_number": 2', '"sequence_number": 1')
+    assert parse_stream(body, agent_mode=True)["stream_error"] is not None
+
+
+def test_agent_mode_interrupted_tool_stream_is_not_completion():
+    parsed = parse_stream(stream(native_events(NATIVE_ITEMS[2])[:-1]), agent_mode=True)
+    assert parsed["stream_error"] is None
+    assert parsed["terminal_event"] is None
+
+
+@pytest.mark.parametrize(
+    "change", ["missing_status", "missing_action", "bad_action", "duplicate_item_id"]
+)
+def test_malformed_native_output_is_not_accepted(change):
+    final = response()
+    item = copy.deepcopy(NATIVE_ITEMS[2])
+    if change == "missing_status":
+        item.pop("status")
+    elif change == "missing_action":
+        item.pop("action")
+    elif change == "bad_action":
+        item["action"] = {"type": "find_in_page", "url": None, "pattern": 42}
+    final["output"] = [item]
+    if change == "duplicate_item_id":
+        final["output"].append(copy.deepcopy(item))
+    parsed = parse_stream(
+        stream([{"type": "response.completed", "response": final}]), agent_mode=True
+    )
+    assert parsed["stream_error"] is not None
+
+
+@pytest.mark.parametrize("item", NATIVE_ITEMS[2:5])
+def test_native_added_items_can_be_partial_before_tool_execution(item):
+    rows = native_events(item)
+    rows[1]["item"] = {"type": item["type"], "id": item["id"], "status": "in_progress"}
+    parsed = parse_stream(stream(rows), agent_mode=True)
+    assert parsed["stream_error"] is None
