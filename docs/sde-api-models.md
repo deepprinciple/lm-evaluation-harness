@@ -489,3 +489,27 @@ events, NumPy output `5.0` and file read-back `5.0`. Commentary remains in raw
 evidence; only the final-answer phase is matched to the CLI answer. The scoped
 adapter regression suite passed 477 tests, and changed Python files passed Ruff
 and mypy. These checks do not prove that every possible native tool was exercised.
+
+## Benchmark-source audit
+
+The fixed MCP tool profile used to block benchmark sources (Hugging Face, the
+SDE repository and paper) inside its own search/read tools. The native tool
+profiles above do not apply that blocklist: native search, page reading, shell
+and file tools are restricted only by the system prompt and the execution
+environment. Audit every agent record directory before reporting its results:
+
+```bash
+python -m lm_eval.sde_audit results/flash_cc_native/raw > results/flash_cc_native/audit.json
+```
+
+The audit scans model-facing attempt evidence (provider streams, API calls, CLI
+traces, answers, search and MCP tool records) for Hugging Face URLs or caches,
+the SDE dataset organizations, the TMC ground-truth record, the SDE repository
+and paper, and the record directory's own path. Main record JSON, CLI stderr,
+the pinned catalog and harness path fields are skipped. Each flagged question is
+listed with task, document, repeat, status, file and surrounding context for
+manual review. A hit is not proof of leakage; no hit does not prove its absence,
+because encrypted search results and pages without a recorded URL cannot be
+checked. No API call is made. The audit does not change records or scores.
+Provider-side domain filters for the DeepSeek search bridge are not configured
+because DeepSeek support for them has not been verified.
