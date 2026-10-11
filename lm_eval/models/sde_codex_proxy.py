@@ -97,9 +97,16 @@ def prepare_payload(body: dict[str, Any], model: str, effort: str, budget: int) 
 
 
 def inspect_stream(
-    body: str, model: str, effort: str, budget: int | None = None
+    body: str,
+    model: str,
+    effort: str,
+    budget: int | None = None,
+    *,
+    allow_sparse_terminal: bool = False,
 ) -> dict[str, Any]:
-    parsed = parse_stream(body, agent_mode=True)
+    parsed = parse_stream(
+        body, agent_mode=True, allow_sparse_terminal=allow_sparse_terminal
+    )
     response = parsed["response"]
     status = "ok"
     terminal = parsed["terminal_event"]
@@ -376,6 +383,7 @@ class ResponsesProxy(MessagesProxy):
         chunks = []
         pending = b""
         downstream = None
+        terminal_forwarded = False
         try:
             async with self.session.post(
                 self.endpoint,
@@ -412,6 +420,17 @@ class ResponsesProxy(MessagesProxy):
                             out.flush()
                             if channel is None or response.status == 200:
                                 await self.emit(channel, downstream, line)
+                                if (
+                                    line.startswith(b"data:")
+                                    and b"response.completed" in line
+                                ):
+                                    try:
+                                        terminal_forwarded = (
+                                            json.loads(line[5:]).get("type")
+                                            == "response.completed"
+                                        )
+                                    except (ValueError, AttributeError):
+                                        pass
                     if pending:
                         out.write(
                             redact(
@@ -421,6 +440,17 @@ class ResponsesProxy(MessagesProxy):
                         )
                         if channel is None or response.status == 200:
                             await self.emit(channel, downstream, pending)
+                            if (
+                                pending.startswith(b"data:")
+                                and b"response.completed" in pending
+                            ):
+                                try:
+                                    terminal_forwarded = (
+                                        json.loads(pending[5:]).get("type")
+                                        == "response.completed"
+                                    )
+                                except (ValueError, AttributeError):
+                                    pass
                         pending = b""
                     out.flush()
                     os.fsync(out.fileno())
@@ -448,12 +478,8 @@ class ResponsesProxy(MessagesProxy):
                             self.api_model,
                             self.effort,
                             self.max_tokens,
+                            allow_sparse_terminal=self.auth_mode == "chatgpt",
                         )
-                    )
-                if call["status"] == "ok":
-                    self.response_history[call["response"]["id"]] = (
-                        copy.deepcopy(call["payload"]),
-                        copy.deepcopy(call["response"]),
                     )
                 if channel is None:
                     await downstream.write_eof()
@@ -469,6 +495,18 @@ class ResponsesProxy(MessagesProxy):
                     )
         except ToolProfileError as exc:
             call.update(status="protocol_error", error=str(exc))
+        except aiohttp.ClientConnectionResetError as exc:
+            parsed = inspect_stream(
+                b"".join(chunks).decode("utf-8", errors="replace"),
+                self.api_model,
+                self.effort,
+                self.max_tokens,
+                allow_sparse_terminal=self.auth_mode == "chatgpt",
+            )
+            if terminal_forwarded and parsed["status"] == "ok":
+                call.update(parsed, transport_tail_error=type(exc).__name__)
+            else:
+                call.update(status="transport_failed", error=type(exc).__name__)
         except (aiohttp.ClientError, OSError, UnicodeError) as exc:
             call.update(status="transport_failed", error=type(exc).__name__)
         finally:
@@ -484,6 +522,15 @@ class ResponsesProxy(MessagesProxy):
                     os.fsync(out.fileno())
             if call["status"] == "running":
                 call["status"] = "transport_failed"
+            if call["status"] == "ok":
+                self.response_history[call["response"]["id"]] = (
+                    copy.deepcopy(call["payload"]),
+                    copy.deepcopy(call["response"]),
+                )
+                if call.get("sparse_terminal_output"):
+                    call["normalizations"].append(
+                        "subscription_terminal_output_from_closed_items"
+                    )
             self.persist(call)
         return (
             downstream

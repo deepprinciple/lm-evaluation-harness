@@ -66,6 +66,51 @@ def payload():
     }
 
 
+@pytest.mark.parametrize("after_terminal", [False, True])
+def test_downstream_reset_requires_a_valid_terminal(tmp_path, after_terminal):
+    async def upstream(request):
+        rows = native_events(NATIVE_ITEMS[1])
+        for row in (rows[0], rows[-1]):
+            row["response"]["model"] = "test-model"
+        return web.Response(
+            body=stream(rows, done=False) + "data: [DONE]\n\n",
+            content_type="text/event-stream",
+        )
+
+    async def run():
+        async with (
+            local_provider(upstream) as endpoint,
+            aiohttp.ClientSession() as session,
+            ResponsesProxy(
+                session, endpoint, "test-model", "max", 128000, "fake-key", tmp_path, []
+            ) as proxy,
+        ):
+            emit = proxy.emit
+
+            async def reset(channel, downstream, line):
+                if (after_terminal and line == b"data: [DONE]") or (
+                    not after_terminal and b"response.created" in line
+                ):
+                    raise aiohttp.ClientConnectionResetError("downstream closed")
+                await emit(channel, downstream, line)
+
+            proxy.emit = reset
+            async with session.post(
+                proxy.url + "/" + proxy.token + "/responses",
+                json=payload(),
+                headers={"Authorization": "Bearer " + proxy.token},
+            ) as result:
+                await result.read()
+            call = proxy.calls[0]
+            assert call["status"] == ("ok" if after_terminal else "transport_failed")
+            assert proxy.failure.is_set() is not after_terminal
+            if after_terminal:
+                assert call["transport_tail_error"] == "ClientConnectionResetError"
+                assert call["response"]["id"] in proxy.response_history
+
+    asyncio.run(run())
+
+
 def test_payload_preserves_tools_namespaces_choice_and_full_history():
     body = payload()
     original = copy.deepcopy(body)
