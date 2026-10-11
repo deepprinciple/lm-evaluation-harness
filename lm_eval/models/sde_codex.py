@@ -243,6 +243,7 @@ class SDECodex(SDEChatCompletion):
         device: Any = None,
         node_bin: str | None = None,
         search_backend: str | None = None,
+        reasoning_summary: str = "auto",
     ):
         if auth_mode not in {"api_key", "chatgpt"}:
             raise ValueError("auth_mode must be api_key or chatgpt")
@@ -290,6 +291,12 @@ class SDECodex(SDEChatCompletion):
         )
         if effort not in {"low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported Codex effort")
+        # Codex's model_reasoning_summary; "none" leaves it unset, so the pinned
+        # catalog default applies as in the earlier command.
+        if reasoning_summary not in {"auto", "concise", "detailed", "none"}:
+            raise ValueError(
+                "reasoning_summary must be auto, concise, detailed or none"
+            )
         self.codex = Path(codex_bin).resolve()
         self.tool_python = Path(tool_python).absolute()
         self.node = Path(node_bin).absolute() if node_bin else None
@@ -328,6 +335,7 @@ class SDECodex(SDEChatCompletion):
             **runtime,
             tools_policy="all_available",
             search_backend=search_backend,
+            reasoning_summary=reasoning_summary,
             read_backend="native_tools",
             search_attempt_limit=None,
             native_tools=True,
@@ -415,6 +423,11 @@ class SDECodex(SDEChatCompletion):
             "model_provider": provider,
             "model_catalog_json": str(catalog),
             "model_reasoning_effort": self.config["effort"],
+            **(
+                {"model_reasoning_summary": self.config["reasoning_summary"]}
+                if self.config["reasoning_summary"] != "none"
+                else {}
+            ),
             "web_search": "disabled" if self.deepseek_search else "live",
             "approval_policy": "never",
             "agents.enabled": True,

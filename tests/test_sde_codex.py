@@ -1306,3 +1306,34 @@ def test_changed_subscription_file_is_an_auth_mismatch(model, tmp_path):
     asyncio.run(m.request_once(None, m.create_payload(request()), "", attempt))
     assert attempt["status"] == "auth_profile_mismatch"
     assert "account changed" in attempt["error"]
+
+
+def test_reasoning_summary_is_requested_unless_disabled(model, tmp_path):
+    def cfg(m):
+        proxy = ResponsesProxy(
+            None,
+            "http://127.0.0.1:1",
+            "test-model",
+            "max",
+            128000,
+            "fake",
+            tmp_path,
+            [],
+        )
+        proxy.url = "http://127.0.0.1:2"
+        command = m.command(tmp_path, "prompt", proxy, tmp_path)
+        return {
+            command[i + 1].split("=", 1)[0]: json.loads(command[i + 1].split("=", 1)[1])
+            for i, arg in enumerate(command[:-1])
+            if arg == "-c"
+        }
+
+    default = model()
+    assert cfg(default)["model_reasoning_summary"] == "auto"
+    assert default.config["reasoning_summary"] == "auto"
+    assert "model_reasoning_summary" not in cfg(model(reasoning_summary="none"))
+    assert cfg(model(reasoning_summary="detailed"))["model_reasoning_summary"] == (
+        "detailed"
+    )
+    with pytest.raises(ValueError, match="reasoning_summary"):
+        model(reasoning_summary="raw")

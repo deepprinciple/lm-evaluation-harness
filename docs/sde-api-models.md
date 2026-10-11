@@ -401,6 +401,15 @@ Temporary login-shell profiles restore that PATH after system shell startup;
 they do not change the user's personal shell files.
 They do not inherit the parent process's API-key environment.
 
+Reasoning summaries (2026-10-11 decision, matching the Opus and Astra API
+profiles): the command sets Codex `model_reasoning_summary="auto"` by default so
+that readable reasoning summaries are kept in raw records; they are never scored.
+`reasoning_summary=none` leaves the setting unset, restoring the earlier command
+and the pinned catalog default. The catalog is not modified: the Flash catalog
+declares summary support, while the Astra catalog defaults to `none` and does not
+declare it, so whether summaries are actually returned for each model and
+endpoint must be checked in a live run.
+
 Search routes are selected by `search_backend`. It is inferred only for the
 verified API models (`deepseek-flash` -> `deepseek_anthropic_bridge`,
 `gpt-6-astra` -> `native_responses_hosted`); any other API model must set
