@@ -352,6 +352,8 @@ Its instructions and `tool_mode` are preserved, including `code_mode_only`;
 the adapter no longer disables native code mode. Catalog/CLI/runtime hashes and
 actual feature inventory are saved. The child environment is explicitly constructed;
 native shells inherit that environment and can use its scientific Python PATH.
+Temporary login-shell profiles restore that PATH after system shell startup;
+they do not change the user's personal shell files.
 They do not inherit the parent process's API-key environment.
 
 Search routes:
@@ -362,9 +364,11 @@ Search routes:
   `/alpha/search`; the proxy forwards that exact route only to the fixed official
   subscription backend, retaining commands, settings, its tool budget and raw
   results separately. It never substitutes a subscription search for an API-key
-  profile. The tested relay returned 404 for `/v1/alpha/search` and its code-mode
-  tool inventory did not expose search; a working primary Responses call does
-  not establish working native search.
+  profile. The tested relay returned 404 for `/v1/alpha/search`. For Astra API-key
+  profiles the proxy instead adds the provider-native `web_search` tool to the
+  existing Responses tool list, preserving all CLI tools and the original request.
+  The 2026-10-11 smoke verified real hosted search and page opening on that same
+  relay, without borrowing subscription credentials or third-party search.
 - Flash@Codex uses the previously verified DeepSeek Anthropic native search API
   via a small client-side MCP bridge. The primary model stays on Responses.
   Codex's unsupported hosted Responses search route is disabled for this model;
@@ -457,9 +461,14 @@ On Mac, using Claude Code 2.1.296, Codex 0.162.1, Node 22.16.0, max effort,
 | Opus@Claude Code | Passed | All four passed |
 | Flash@Codex API | Passed | All four passed, DeepSeek native search bridge |
 | Astra@Codex subscription | Passed | All four passed, official native `/alpha/search` |
-| Astra@Codex relay API | Passed | Partial: page read passed; search absent, default system Python lacked NumPy and no file was written |
+| Astra@Codex relay API | Passed | All four passed after hosted Responses search and login-shell Python fixes |
 
 These are synthetic engineering requests, not scientific scores or full-run
 authorization. Subscription auth remained unchanged. Earlier failed attempts,
 provider requests/results and CLI traces were preserved; live evidence is under
 `results_question/lm_eval_native_smoke_20261011` in the surrounding SDE workspace.
+The final relay rerun (`retry4`) completed in 83.4 seconds with native search/open
+events, NumPy output `5.0` and file read-back `5.0`. Commentary remains in raw
+evidence; only the final-answer phase is matched to the CLI answer. The scoped
+adapter regression suite passed 477 tests, and changed Python files passed Ruff
+and mypy. These checks do not prove that every possible native tool was exercised.
