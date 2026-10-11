@@ -18,6 +18,7 @@ from lm_eval.models.sde_chat import SDEChatCompletion, digest
 from lm_eval.models.sde_claude_code import (
     SYSTEM,
     capture_pipe,
+    prepare_tool_shells,
     stop_process,
     validate_tool_runtime,
 )
@@ -274,6 +275,7 @@ class SDECodex(SDEChatCompletion):
         self.catalog = {"models": [dict(entries[0])]}
         pinned_tool_mode = entries[0].get("tool_mode")
         self.deepseek_search = model == "deepseek-flash" and auth_mode == "api_key"
+        self.hosted_web_search = model == "gpt-6-astra" and auth_mode == "api_key"
         runtime = validate_runtime(self.codex, cli_version, self.tool_python, self.node)
         self.config.pop("thinking")
         self.config.pop("reasoning_effort")
@@ -293,6 +295,10 @@ class SDECodex(SDEChatCompletion):
             tools_policy="all_available",
             search_backend="deepseek_anthropic_bridge"
             if self.deepseek_search
+            else "native_responses_hosted"
+            if self.hosted_web_search
+            else "native_subscription_web"
+            if self.auth_mode == "chatgpt"
             else "native_responses",
             read_backend="native_tools",
             search_attempt_limit=None,
@@ -479,11 +485,13 @@ class SDECodex(SDEChatCompletion):
             directory,
             secrets,
             auth_mode=self.auth_mode,
+            hosted_web_search=self.hosted_web_search,
         )
         try:
             # OAuth files must never be written into retained raw-result trees.
             with tempfile.TemporaryDirectory(prefix="sde-codex-auth-") as tmp:
                 home = Path(tmp)
+                prepare_tool_shells(home, self.tool_python, self.node)
                 work = home / "work"
                 for name in ("tmp", "compute"):
                     (work / name).mkdir(parents=True)

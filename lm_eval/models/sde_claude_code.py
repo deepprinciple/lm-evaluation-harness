@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shlex
 import signal
 import subprocess
 import tempfile
@@ -42,6 +43,16 @@ def validate_runtime(
     if actual.split()[0] != version:
         raise ValueError("Claude Code version does not match cli_version")
     return {"cli_version": actual, **validate_tool_runtime(python)}
+
+
+def prepare_tool_shells(home: Path, python: Path, node: Path | None) -> None:
+    """Restore the selected tool runtime after system login-shell PATH changes."""
+    directories = [str(python.parent)]
+    if node:
+        directories.append(str(node.parent))
+    profile = "export PATH=" + shlex.quote(":".join(directories)) + ':"$PATH"\n'
+    for filename in (".zprofile", ".bash_profile", ".profile"):
+        (home / filename).write_text(profile)
 
 
 def validate_tool_runtime(python: Path) -> dict[str, Any]:
@@ -320,6 +331,7 @@ class SDEClaudeCode(SDEChatCompletion):
         work = Path(workspace.name)
         for name in ("home/.claude", "tmp"):
             (work / name).mkdir(parents=True)
+        prepare_tool_shells(work / "home", self.tool_python, self.node)
         secrets = [key]
         attempt.update(
             trace_path=str(directory / "trace.jsonl"),

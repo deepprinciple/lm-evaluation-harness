@@ -49,7 +49,14 @@ def mapped_line(line: bytes) -> bytes:
     return line
 
 
-def prepare_payload(body: dict[str, Any], model: str, effort: str, budget: int) -> dict:
+def prepare_payload(
+    body: dict[str, Any],
+    model: str,
+    effort: str,
+    budget: int,
+    *,
+    hosted_web_search: bool = False,
+) -> dict:
     if body.get("model") != model:
         raise ValueError("model_mismatch")
     if (
@@ -96,6 +103,11 @@ def prepare_payload(body: dict[str, Any], model: str, effort: str, budget: int) 
     # Codex has no documented per-response output setting. Keep the original
     # request, then set and record the actual provider budget explicitly.
     value["max_output_tokens"] = budget
+    if hosted_web_search and not any(
+        tool.get("type") in {"web_search", "web_search_preview"}
+        for tool in value.get("tools", [])
+    ):
+        value.setdefault("tools", []).append({"type": "web_search"})
     return value
 
 
@@ -115,9 +127,17 @@ def inspect_stream(
     terminal = parsed["terminal_event"]
     failure = parsed["stream_error"]
     output = response.get("output", [])
+    final_messages = [
+        item
+        for item in output
+        if item.get("type") == "message" and item.get("phase") == "final_answer"
+    ]
+    answer_items = final_messages or [
+        item for item in output if item.get("phase") != "commentary"
+    ]
     text = "".join(
         part.get("text", part.get("refusal", ""))
-        for item in output
+        for item in answer_items
         if item.get("type") == "message"
         for part in item.get("content", [])
     )
@@ -149,9 +169,13 @@ def inspect_stream(
         for part in item.get("content", [])
     ):
         status = "refusal"
-    elif response.get("error") or any(
-        item.get("status", "completed") != "completed" or item.get("error")
-        for item in output
+    elif (
+        len(final_messages) > 1
+        or response.get("error")
+        or any(
+            item.get("status", "completed") != "completed" or item.get("error")
+            for item in output
+        )
     ):
         status = "protocol_error"
     elif not text.strip() and not any(
@@ -163,6 +187,9 @@ def inspect_stream(
     return {
         "status": status,
         "answer": text,
+        "answer_selection": "final_answer_phase"
+        if final_messages
+        else "non_commentary_messages",
         "output_budget_echo_matches": (
             response["max_output_tokens"] == budget
             if response.get("max_output_tokens") is not None
@@ -173,9 +200,16 @@ def inspect_stream(
 
 
 class ResponsesProxy(MessagesProxy):
-    def __init__(self, *args, auth_mode: str = "api_key", **kwargs):
+    def __init__(
+        self,
+        *args,
+        auth_mode: str = "api_key",
+        hosted_web_search: bool = False,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.auth_mode = auth_mode
+        self.hosted_web_search = hosted_web_search
         self.controls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
         self.response_history: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
@@ -431,8 +465,14 @@ class ResponsesProxy(MessagesProxy):
                 if incoming.pop("generate") is not True:
                     raise ValueError("protocol_error")
             call["payload"] = prepare_payload(
-                incoming, self.api_model, self.effort, self.max_tokens
+                incoming,
+                self.api_model,
+                self.effort,
+                self.max_tokens,
+                hosted_web_search=self.hosted_web_search,
             )
+            if call["payload"].get("tools") != incoming.get("tools"):
+                call["normalizations"].append("native_hosted_web_search_tool")
         except ValueError as exc:
             call["status"] = str(exc)
             self.persist(call)
