@@ -264,7 +264,11 @@ def validate_response(
 
 
 def parse_stream(
-    body: str, allowed_tools: set[str] | None = None, *, agent_mode: bool = False
+    body: str,
+    allowed_tools: set[str] | None = None,
+    *,
+    agent_mode: bool = False,
+    allow_sparse_terminal: bool = False,
 ) -> dict[str, Any]:
     response: dict[str, Any] = {}
     items: dict[int, dict[str, Any]] = {}
@@ -278,6 +282,7 @@ def parse_stream(
     terminal = None
     failure = None
     done = False
+    sparse_terminal_output = False
     sequence = -1
     delta_types = {
         "response.output_text.delta": text_deltas,
@@ -343,6 +348,21 @@ def parse_stream(
                     "response.failed",
                 }:
                     output = incoming["output"]
+                    if (
+                        allow_sparse_terminal
+                        and not output
+                        and items
+                        and kind == "response.completed"
+                    ):
+                        if set(items) != set(range(len(items))) or set(items) != closed:
+                            raise ValueError(
+                                "sparse terminal has unfinished output items"
+                            )
+                        # Subscription SSE can omit its terminal snapshot. Use only
+                        # validated output_item.done objects, never text deltas.
+                        output = [copy.deepcopy(items[i]) for i in range(len(items))]
+                        incoming["output"] = output
+                        sparse_terminal_output = True
                     for index, item in items.items():
                         if index >= len(output) or any(
                             item.get(field) != output[index].get(field)
@@ -472,6 +492,7 @@ def parse_stream(
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
         failure = {"type": "parser_error", "message": str(exc)}
     return {
+        "sparse_terminal_output": sparse_terminal_output,
         "response": response,
         "terminal_event": terminal,
         "done_sentinel": done,

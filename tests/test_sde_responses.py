@@ -14,6 +14,32 @@ from lm_eval.evaluator import evaluate
 from lm_eval.models.sde_responses import SDEResponses, classify, parse_stream
 
 
+def test_subscription_sparse_terminal_uses_only_closed_stream_items():
+    item = {
+        "id": "c1",
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "call1",
+        "input": "text(1)",
+        "status": "completed",
+    }
+    rows = native_events(item)
+    rows[-1]["response"]["output"] = []
+    parsed = parse_stream(stream(rows), agent_mode=True, allow_sparse_terminal=True)
+    assert parsed["stream_error"] is None
+    assert parsed["response"]["output"] == [item]
+    assert parsed["sparse_terminal_output"] is True
+    assert parsed["terminal_event"] == "response.completed"
+    assert parse_stream(stream(rows), agent_mode=True)["stream_error"] is not None
+    unclosed = [row for row in rows if row["type"] != "response.output_item.done"]
+    assert (
+        parse_stream(stream(unclosed), agent_mode=True, allow_sparse_terminal=True)[
+            "stream_error"
+        ]
+        is not None
+    )
+
+
 def response(
     answer="<answer>A</answer>",
     status="completed",
