@@ -376,6 +376,14 @@ Temporary login-shell profiles restore that PATH after system shell startup;
 they do not change the user's personal shell files.
 They do not inherit the parent process's API-key environment.
 
+Search routes are selected by `search_backend`. It is inferred only for the
+verified API models (`deepseek-flash` -> `deepseek_anthropic_bridge`,
+`gpt-6-astra` -> `native_responses_hosted`); any other API model must set
+`deepseek_anthropic_bridge`, `native_responses_hosted` or `native_responses`
+explicitly, so a renamed slug cannot silently lose search. The bridge stays
+pinned to `deepseek-flash`, and subscription profiles always use
+`native_subscription_web`.
+
 Search routes:
 
 - Astra profiles request Codex `web_search="live"`. The installed CLI/catalog

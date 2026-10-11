@@ -588,6 +588,8 @@ def model(tmp_path, monkeypatch):
             base_url="http://127.0.0.1:1/responses",
         )
         args.update(kwargs)
+        if args["model"] == "test-model" and args.get("auth_mode") != "chatgpt":
+            args.setdefault("search_backend", "native_responses")
         return cx.SDECodex(**args)
 
     return make
@@ -1258,3 +1260,23 @@ def test_responses_proxy_retries_503_before_stream(tmp_path, monkeypatch):
             assert len(seen) == 2 and seen[0] == seen[1]
 
     asyncio.run(run())
+
+
+def test_unknown_api_model_requires_explicit_search_backend(model, tmp_path):
+    with pytest.raises(ValueError, match="search_backend"):
+        model(search_backend=None)
+    with pytest.raises(ValueError, match="search_backend"):
+        model(search_backend="serpapi")
+    with pytest.raises(ValueError, match="pinned to deepseek-flash"):
+        model(search_backend="deepseek_anthropic_bridge")
+    hosted = model(search_backend="native_responses_hosted")
+    assert hosted.hosted_web_search and not hosted.deepseek_search
+    assert hosted.config["search_backend"] == "native_responses_hosted"
+    auth = authfile(tmp_path / "auth.json")
+    with pytest.raises(ValueError, match="native_subscription_web"):
+        model(
+            auth_mode="chatgpt",
+            auth_file=str(auth),
+            base_url=cx.SUBSCRIPTION_ENDPOINT,
+            search_backend="native_responses",
+        )

@@ -33,6 +33,17 @@ DISABLED_FEATURES = (
     "unbounded_connection_retries",
 )
 SUBSCRIPTION_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
+# Verified search routes for the pinned API models; any other model must name
+# its route explicitly instead of silently running with a different tool set.
+API_SEARCH_BACKENDS = {
+    "deepseek_anthropic_bridge",
+    "native_responses_hosted",
+    "native_responses",
+}
+INFERRED_SEARCH_BACKENDS = {
+    "deepseek-flash": "deepseek_anthropic_bridge",
+    "gpt-6-astra": "native_responses_hosted",
+}
 
 
 def read_subscription(path: Path) -> tuple[bytes, str, list[str]]:
@@ -227,6 +238,7 @@ class SDECodex(SDEChatCompletion):
         max_batch_size: Any = None,
         device: Any = None,
         node_bin: str | None = None,
+        search_backend: str | None = None,
     ):
         if auth_mode not in {"api_key", "chatgpt"}:
             raise ValueError("auth_mode must be api_key or chatgpt")
@@ -240,6 +252,24 @@ class SDECodex(SDEChatCompletion):
         self.auth_file = Path(auth_file).resolve() if auth_file else None
         if auth_mode == "chatgpt" and self.auth_file is None:
             raise ValueError("Subscription profile requires an explicit auth_file")
+        if auth_mode == "chatgpt":
+            if search_backend not in (None, "native_subscription_web"):
+                raise ValueError("Subscription profiles use native_subscription_web")
+            search_backend = "native_subscription_web"
+        else:
+            search_backend = search_backend or INFERRED_SEARCH_BACKENDS.get(model)
+            if search_backend not in API_SEARCH_BACKENDS:
+                raise ValueError(
+                    "Set search_backend to one of "
+                    f"{sorted(API_SEARCH_BACKENDS)} for this API model"
+                )
+            if (
+                search_backend == "deepseek_anthropic_bridge"
+                and model != "deepseek-flash"
+            ):
+                raise ValueError(
+                    "The DeepSeek search bridge is pinned to deepseek-flash"
+                )
         self.account_identity: str | None = None
         super().__init__(
             model=model,
@@ -274,8 +304,8 @@ class SDECodex(SDEChatCompletion):
         # Freeze only this model; no opportunistic lookup/fallback to another model.
         self.catalog = {"models": [dict(entries[0])]}
         pinned_tool_mode = entries[0].get("tool_mode")
-        self.deepseek_search = model == "deepseek-flash" and auth_mode == "api_key"
-        self.hosted_web_search = model == "gpt-6-astra" and auth_mode == "api_key"
+        self.deepseek_search = search_backend == "deepseek_anthropic_bridge"
+        self.hosted_web_search = search_backend == "native_responses_hosted"
         runtime = validate_runtime(self.codex, cli_version, self.tool_python, self.node)
         self.config.pop("thinking")
         self.config.pop("reasoning_effort")
@@ -293,13 +323,7 @@ class SDECodex(SDEChatCompletion):
             catalog_normalizations=[],
             **runtime,
             tools_policy="all_available",
-            search_backend="deepseek_anthropic_bridge"
-            if self.deepseek_search
-            else "native_responses_hosted"
-            if self.hosted_web_search
-            else "native_subscription_web"
-            if self.auth_mode == "chatgpt"
-            else "native_responses",
+            search_backend=search_backend,
             read_backend="native_tools",
             search_attempt_limit=None,
             native_tools=True,
