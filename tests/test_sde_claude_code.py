@@ -1262,6 +1262,10 @@ def test_isolated_cli_subprocess_capture_and_environment(model_setup, monkeypatc
     result = model.generate_until([question(model)])[0]
     assert result.text == "<answer>A</answer>"
     meta = result.metadata["agent_metadata"][0]
+    assert meta["api_calls"][0]["status"] == "ok"
+    assert "payload" not in meta["api_calls"][0]
+    record = json.loads(Path(result.metadata["record_path"]).read_text())
+    assert record["attempts"][0]["api_calls"][0]["payload"] == {"model": "test-model"}
     assert "inherited-secret" not in Path(meta["stderr_path"]).read_text()
     assert "isolated" in Path(meta["stderr_path"]).read_text()
     assert Path(meta["trace_path"]).exists()
@@ -1564,15 +1568,18 @@ def post_main(tmp_path, responses, monkeypatch):
             tmp_path,
             [],
         ) as proxy:
-            async with aiohttp.ClientSession() as client, client.post(
-                proxy.url + "/v1/messages",
-                headers={"x-api-key": proxy.token},
-                json={
-                    "model": "test-model",
-                    "max_tokens": 128000,
-                    "output_config": {"effort": "max"},
-                },
-            ) as response:
+            async with (
+                aiohttp.ClientSession() as client,
+                client.post(
+                    proxy.url + "/v1/messages",
+                    headers={"x-api-key": proxy.token},
+                    json={
+                        "model": "test-model",
+                        "max_tokens": 128000,
+                        "output_config": {"effort": "max"},
+                    },
+                ) as response,
+            ):
                 body = await response.text()
             return response.status, body, proxy, session
 
@@ -1610,3 +1617,49 @@ def test_proxy_forwards_quota_errors_without_retry(tmp_path, monkeypatch):
     assert proxy.calls[0]["fatal"] is True
     assert "upstream_retries" not in proxy.calls[0]
     assert len(session.calls) == 1
+
+
+def test_call_summary_keeps_status_and_usage_without_payloads():
+    from lm_eval.models.sde_cc_proxy import call_summary
+
+    history = [{"role": "user", "content": "x" * 10000}]
+    call = {
+        "index": 3,
+        "path": "/responses",
+        "original_payload": {"input": history},
+        "payload": {"input": history},
+        "status": "ok",
+        "http_status": 200,
+        "raw_path": "/r/api_003.sse",
+        "normalizations": ["fixed_output_budget"],
+        "response": {"model": "m", "usage": {"output_tokens": 7}, "output": history},
+        "output_items": history,
+        "text_deltas": [{"delta": "x" * 10000}],
+        "upstream_retries": [{"http_status": 529}],
+    }
+    summary = call_summary(call)
+    assert summary == {
+        "index": 3,
+        "path": "/responses",
+        "status": "ok",
+        "http_status": 200,
+        "raw_path": "/r/api_003.sse",
+        "normalizations": ["fixed_output_budget"],
+        "model": "m",
+        "usage": {"output_tokens": 7},
+        "upstream_retries": 1,
+    }
+    search = {
+        "index": 1,
+        "query": "q",
+        "status": "ok",
+        "usage": {"a": 1},
+        "results": [1, 2],
+    }
+    assert call_summary(search) == {
+        "index": 1,
+        "query": "q",
+        "status": "ok",
+        "usage": {"a": 1},
+        "result_count": 2,
+    }

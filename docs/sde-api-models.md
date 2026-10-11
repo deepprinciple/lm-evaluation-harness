@@ -324,7 +324,11 @@ response. Other upstream failures still end the attempt. Observable
 401/403 stops the batch; refusals and token/context limits are not technical retries.
 
 Every attempt retains trace, stderr, tool calls, primary/helper request parameters,
-raw responses and usage. Exact secret strings are redacted. Normal cancellation
+raw responses and usage. Exact secret strings are redacted. Because every agent
+request resends the whole conversation, `response_metadata.agent_metadata` in
+sample logs keeps only per-call summaries (index, kind, status, HTTP status,
+model, usage, profile checks, retry counts and raw paths); full payloads and
+responses stay in the raw record and its `api_NNN.json`/`.sse` files. Normal cancellation
 terminates the CLI process group; detached native processes and abrupt OS kills
 can escape that cleanup, so a disposable per-run execution environment is required
 for stronger containment. Resume uses a new CLI attempt and retains prior evidence.
@@ -436,6 +440,7 @@ in agent mode without weakening the no-tools parser.
 The default max effort/concurrency/deadline/technical retry budgets match Claude
 Code. No human-imposed search or turn cap remains. Every attempt stores primary
 API calls, separate Flash search_calls, traces, stdout/stderr and final answers.
+Sample logs carry the same per-call summaries as Claude Code, not full payloads.
 The CLI must complete a real turn and exit successfully; a retained answer file
 alone does not establish completion. The final API answer must match the CLI's
 answer and root thread identity where supplied. If no request identity is supplied,

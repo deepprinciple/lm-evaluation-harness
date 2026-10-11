@@ -13,7 +13,7 @@ from typing import Any
 
 from lm_eval.api.instance import GenerationResult, Instance
 from lm_eval.api.registry import register_model
-from lm_eval.models.sde_cc_proxy import redact
+from lm_eval.models.sde_cc_proxy import call_summary, redact
 from lm_eval.models.sde_chat import SDEChatCompletion, digest
 from lm_eval.models.sde_claude_code import (
     SYSTEM,
@@ -657,18 +657,21 @@ class SDECodex(SDEChatCompletion):
             tool_calls=last.get("tool_calls", []),
             agent_metadata=[
                 {
-                    key: attempt.get(key)
-                    for key in (
-                        "trace_path",
-                        "stderr_path",
-                        "tools_path",
-                        "search_calls",
-                        "api_answer_attribution",
-                        "final_api_call_index",
-                        "returncode",
-                        "api_calls",
-                        "cli_controls",
-                    )
+                    **{
+                        key: attempt.get(key)
+                        for key in (
+                            "trace_path",
+                            "stderr_path",
+                            "tools_path",
+                            "api_answer_attribution",
+                            "final_api_call_index",
+                            "returncode",
+                        )
+                    },
+                    **{
+                        key: [call_summary(call) for call in attempt.get(key) or []]
+                        for key in ("search_calls", "api_calls", "cli_controls")
+                    },
                 }
                 for attempt in record["attempts"]
             ],

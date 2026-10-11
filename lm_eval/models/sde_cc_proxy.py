@@ -29,6 +29,56 @@ def redact(text: str, secrets: list[str]) -> str:
     return text
 
 
+SUMMARY_FIELDS = (
+    "index",
+    "path",
+    "kind",
+    "backend",
+    "request_kind",
+    "profile_enforcement",
+    "cli_transport",
+    "status",
+    "http_status",
+    "fatal",
+    "error",
+    "stream_error",
+    "transport_tail_error",
+    "raw_path",
+    "response_path",
+    "response_format",
+    "actual_profile",
+    "profile_mismatches",
+    "normalizations",
+    "answer_selection",
+    "output_budget_echo_matches",
+    "terminal_event",
+    "messages",
+    "helper_evidence",
+    "query",
+    "upstream_forwarded",
+    "elapsed_seconds",
+)
+
+
+def call_summary(call: dict[str, Any]) -> dict[str, Any]:
+    """Sample-log view of a recorded call; payloads stay in the api_NNN files.
+
+    Each agent request carries the whole conversation, so logging full calls
+    grows quadratically with the number of turns.
+    """
+    summary = {field: call[field] for field in SUMMARY_FIELDS if field in call}
+    response = call.get("response")
+    if isinstance(response, dict):
+        summary["model"] = response.get("model")
+    usage = response.get("usage") if isinstance(response, dict) else None
+    summary["usage"] = usage or call.get("usage") or {}
+    if isinstance(call.get("upstream_retries"), list):
+        summary["upstream_retries"] = len(call["upstream_retries"])
+    if isinstance(call.get("results"), list):
+        summary["result_count"] = len(call["results"])
+    return summary
+
+
 def inspect_stream(body: str, expected_model: str) -> dict[str, Any]:
     parsed = parse_stream(body, expected_model, agent_mode=True)
     segments = parsed["relay_segments"]

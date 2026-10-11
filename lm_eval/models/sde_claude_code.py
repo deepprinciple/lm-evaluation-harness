@@ -16,7 +16,7 @@ from typing import Any
 
 from lm_eval.api.instance import GenerationResult, Instance
 from lm_eval.api.registry import register_model
-from lm_eval.models.sde_cc_proxy import MessagesProxy, redact
+from lm_eval.models.sde_cc_proxy import MessagesProxy, call_summary, redact
 from lm_eval.models.sde_chat import SDEChatCompletion
 from lm_eval.models.sde_stream import stream_sha256
 
@@ -473,14 +473,14 @@ class SDEClaudeCode(SDEChatCompletion):
             tool_calls=last.get("tool_calls", []),
             agent_metadata=[
                 {
-                    k: attempt.get(k)
-                    for k in (
-                        "trace_path",
-                        "stderr_path",
-                        "returncode",
-                        "api_calls",
-                        "helper_calls",
-                    )
+                    **{
+                        k: attempt.get(k)
+                        for k in ("trace_path", "stderr_path", "returncode")
+                    },
+                    **{
+                        k: [call_summary(call) for call in attempt.get(k) or []]
+                        for k in ("api_calls", "helper_calls")
+                    },
                 }
                 for attempt in record["attempts"]
             ],
