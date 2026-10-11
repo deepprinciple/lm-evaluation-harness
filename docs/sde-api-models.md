@@ -465,7 +465,9 @@ The CLI must complete a real turn and exit successfully; a retained answer file
 alone does not establish completion. The final API answer must match the CLI's
 answer and root thread identity where supplied. If no request identity is supplied,
 the weaker answer-only attribution is recorded explicitly. Subscription quota and authentication
-failures stop the batch. Refusals, truncation and wrong answers do not cause retries.
+failures stop the batch. A changed or unreadable subscription auth file is recorded as
+`auth_profile_mismatch` and also stops the batch; other local value errors are
+recorded as `protocol_error`. Refusals, truncation and wrong answers do not cause retries.
 
 As with Claude Code, clean HOME/work directories do **not** restrict host file or
 network access. Use a dedicated container/VM without labels, scoring sources or

@@ -1280,3 +1280,29 @@ def test_unknown_api_model_requires_explicit_search_backend(model, tmp_path):
             base_url=cx.SUBSCRIPTION_ENDPOINT,
             search_backend="native_responses",
         )
+
+
+def test_auth_profile_mismatch_stops_batch(model, monkeypatch):
+    m = model()
+    count = install_response(m, monkeypatch, [("auth_profile_mismatch", "")])
+    with pytest.raises(RuntimeError, match="credentials changed"):
+        m.generate_until([request()])
+    assert len(count) == 1
+
+
+def test_changed_subscription_file_is_an_auth_mismatch(model, tmp_path):
+    auth = authfile(tmp_path / "auth.json")
+    m = model(
+        auth_mode="chatgpt", auth_file=str(auth), base_url=cx.SUBSCRIPTION_ENDPOINT
+    )
+    m.record_dir.mkdir(parents=True)
+    authfile(auth, account="changed")
+    attempt = {
+        "record_path": str(m.record_dir / "record.json"),
+        "attempt": 1,
+        "started_at": 0,
+        "status": "running",
+    }
+    asyncio.run(m.request_once(None, m.create_payload(request()), "", attempt))
+    assert attempt["status"] == "auth_profile_mismatch"
+    assert "account changed" in attempt["error"]

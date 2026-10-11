@@ -46,6 +46,10 @@ INFERRED_SEARCH_BACKENDS = {
 }
 
 
+class AuthProfileError(ValueError):
+    """The subscription credentials no longer match the pinned experiment."""
+
+
 def read_subscription(path: Path) -> tuple[bytes, str, list[str]]:
     raw = path.read_bytes()
     auth = json.loads(raw)
@@ -522,11 +526,14 @@ class SDECodex(SDEChatCompletion):
                 codex_home = home / ".codex"
                 codex_home.mkdir(mode=0o700)
                 if self.auth_mode == "chatgpt":
-                    self.validate_auth(self.config["api_key_env"])
                     assert self.auth_file is not None
-                    raw, identity, tokens = read_subscription(self.auth_file)
+                    try:
+                        self.validate_auth(self.config["api_key_env"])
+                        raw, identity, tokens = read_subscription(self.auth_file)
+                    except (ValueError, OSError) as exc:
+                        raise AuthProfileError(str(exc)) from exc
                     if identity != self.account_identity:
-                        raise ValueError("Subscription account changed")
+                        raise AuthProfileError("Subscription account changed")
                     secrets.extend(tokens)
                     proxy.secrets.extend(tokens)
                     auth = codex_home / "auth.json"
@@ -599,10 +606,13 @@ class SDECodex(SDEChatCompletion):
                             proc.returncode,
                         )
                     )
+        except AuthProfileError as exc:
+            attempt.update(status="auth_profile_mismatch", error=str(exc))
         except OSError as exc:
             attempt.update(status="transport_failed", error=type(exc).__name__)
         except ValueError as exc:
-            attempt.update(status="auth_profile_mismatch", error=str(exc))
+            # e.g. an answer file that is not valid UTF-8; not an auth problem.
+            attempt.update(status="protocol_error", error=str(exc))
         except asyncio.CancelledError:
             cancelled = True
             attempt.update(status="transport_failed", error="Cancelled")
@@ -669,6 +679,10 @@ class SDECodex(SDEChatCompletion):
         if result.metadata["status"] == "quota_exhausted":
             raise RuntimeError(
                 "Subscription quota exhausted; record saved, batch stopped"
+            )
+        if result.metadata["status"] == "auth_profile_mismatch":
+            raise RuntimeError(
+                "Subscription credentials changed; record saved, batch stopped"
             )
         return result
 
