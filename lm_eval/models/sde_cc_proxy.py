@@ -173,6 +173,24 @@ def inspect_message(body: str, expected_model: str) -> dict[str, Any]:
         return {"status": "protocol_error", "error": str(exc)}
 
 
+def is_message_stop(line: bytes) -> bool:
+    if not line.startswith(b"data:") or b"message_stop" not in line:
+        return False
+    try:
+        return json.loads(line[5:]).get("type") == "message_stop"
+    except (ValueError, AttributeError):
+        return False
+
+
+def inspect_body(content_type: str, chunks: list[bytes], model: str) -> dict:
+    json_body = "application/json" in content_type
+    inspect = inspect_message if json_body else inspect_stream
+    return {
+        "response_format": "json" if json_body else "sse",
+        **inspect(b"".join(chunks).decode("utf-8"), model),
+    }
+
+
 def helper_evidence(body: dict[str, Any]) -> list[dict[str, Any]]:
     """Recognize isolated native web helpers from server tool declarations.
 
@@ -418,11 +436,14 @@ class MessagesProxy:
         chunks: list[bytes] = []
         pending = b""
         downstream = None
+        content_type = ""
+        stop_seen = forwarded = False
         try:
             async with self.upstream(
                 self.endpoint + request.path, body, headers, call
             ) as response:
                 call["http_status"] = response.status
+                content_type = response.headers.get("Content-Type", "")
                 downstream = web.StreamResponse(
                     status=response.status,
                     headers={
@@ -446,7 +467,10 @@ class MessagesProxy:
                                 + "\n"
                             )
                             out.flush()
+                            stop_seen = stop_seen or is_message_stop(line)
                         await downstream.write(chunk)
+                        forwarded = stop_seen
+                    forwarded = True
                     if pending:
                         out.write(
                             redact(
@@ -464,21 +488,23 @@ class MessagesProxy:
                         else "http_error"
                     )
                 elif messages:
-                    content_type = response.headers.get("Content-Type", "")
-                    inspect = (
-                        inspect_message
-                        if "application/json" in content_type
-                        else inspect_stream
-                    )
-                    call["response_format"] = (
-                        "json" if inspect is inspect_message else "sse"
-                    )
-                    call.update(
-                        inspect(b"".join(chunks).decode("utf-8"), body["model"])
-                    )
+                    call.update(inspect_body(content_type, chunks, body["model"]))
                 else:
                     call["status"] = "ok"
                 await downstream.write_eof()
+        except aiohttp.ClientConnectionResetError as exc:
+            # As in the Responses proxy, a client reset after the complete
+            # upstream answer was forwarded is a tail event, not a failed call.
+            try:
+                if not forwarded or call.get("http_status") != 200:
+                    raise ValueError("reset before the complete answer was forwarded")
+                if messages:
+                    call.update(inspect_body(content_type, chunks, body["model"]))
+                else:
+                    call["status"] = "ok"
+                call["transport_tail_error"] = type(exc).__name__
+            except ValueError:
+                call.update(status="transport_failed", error=type(exc).__name__)
         except (aiohttp.ClientError, OSError, UnicodeError) as exc:
             call.update(status="transport_failed", error=type(exc).__name__)
         finally:

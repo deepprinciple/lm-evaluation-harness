@@ -324,7 +324,10 @@ Started attempts, helpers, tools and backoff share the question deadline. The lo
 proxy transparently retries the same pre-response failures as the API adapters
 (connection errors and non-quota 429/503/529) before forwarding anything to the
 CLI, recording each under the call's `upstream_retries`; the CLI receives one
-response. Other upstream failures still end the attempt. Observable
+response. Other upstream failures still end the attempt. A CLI connection reset
+after the proxy has forwarded `message_stop` (or a complete JSON body) is kept as
+`transport_tail_error` and the call is classified from the received response; an
+earlier reset remains a failure. Observable
 401/403 stops the batch; refusals and token/context limits are not technical retries.
 
 Every attempt retains trace, stderr, tool calls, primary/helper request parameters,

@@ -1688,3 +1688,31 @@ def test_subagent_refusal_does_not_override_successful_final_answer():
         '"parent_tool_use_id": "agent_1", "message"', '"message"'
     )
     assert cc.summarize_trace(main_refusal, 0)["status"] == "refusal"
+
+
+@pytest.mark.parametrize("after_stop", [False, True])
+def test_proxy_accepts_client_reset_only_after_message_stop(
+    tmp_path, monkeypatch, after_stop
+):
+    from aiohttp import web
+
+    complete = stream()
+    body = complete + 'data: {"type": "ping"}\n\n'
+    limit = len(complete) if after_stop else 10
+    original = web.StreamResponse.write
+    written = {}
+
+    async def write(self, data):
+        written[id(self)] = written.get(id(self), 0) + len(data)
+        if written[id(self)] > limit:
+            raise aiohttp.ClientConnectionResetError("downstream closed")
+        await original(self, data)
+
+    monkeypatch.setattr(web.StreamResponse, "write", write)
+    _, _, proxy, _ = post_main(tmp_path, [FakeHTTPResponse(body=body)], monkeypatch)
+    call = proxy.calls[0]
+    assert call["status"] == ("ok" if after_stop else "transport_failed")
+    assert proxy.failure.is_set() is not after_stop
+    if after_stop:
+        assert call["transport_tail_error"] == "ClientConnectionResetError"
+        assert call["response_format"] == "sse"
