@@ -14,6 +14,9 @@ from lm_eval.models.sde_chat import save_record
 from lm_eval.models.sde_responses import parse_stream, validate_native_item
 
 
+SUBSCRIPTION_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
+
+
 class ToolProfileError(ValueError):
     pass
 
@@ -186,6 +189,7 @@ class ResponsesProxy(MessagesProxy):
             return await forward_search(request, self)
 
         app.router.add_post(f"/{self.token}/deepseek-search", search)
+        app.router.add_post(f"/{self.token}/alpha/search", self.forward_native_search)
         app.router.add_post("/{path:.*}", self.forward)
         app.router.add_get("/{path:.*}", self.forward_ws)
         self.runner = web.AppRunner(app, shutdown_timeout=1)
@@ -194,6 +198,82 @@ class ResponsesProxy(MessagesProxy):
         await site.start()
         self.url = f"http://127.0.0.1:{self.runner.addresses[0][1]}"
         return self
+
+    async def forward_native_search(self, request: web.Request) -> web.StreamResponse:
+        """Preserve Codex's standalone subscription web tool and its own budget."""
+        auth = request.headers.get("Authorization", "")
+        if (
+            self.auth_mode != "chatgpt"
+            or self.endpoint != SUBSCRIPTION_ENDPOINT
+            or not auth.startswith("Bearer ")
+            or not auth[7:].strip()
+        ):
+            return web.json_response(
+                {"error": {"message": "Native subscription search unavailable"}},
+                status=403,
+            )
+        try:
+            body = await request.json()
+        except ValueError:
+            return web.json_response({"error": "Invalid search request"}, status=400)
+        if not isinstance(body, dict) or body.get("model") != self.api_model:
+            return web.json_response({"error": "Search model mismatch"}, status=400)
+        self.secrets.append(auth[7:])
+        headers = {"Content-Type": "application/json", "Authorization": auth}
+        for name in ("ChatGPT-Account-ID", "originator", "version", "session_id"):
+            if request.headers.get(name):
+                headers[name] = request.headers[name]
+        prefix = self.directory / f"native_search_{len(self.search_calls) + 1:03}"
+        call: dict[str, Any] = {
+            "backend": "codex_subscription_native",
+            "payload": copy.deepcopy(body),
+            "status": "running",
+            "response_path": str(prefix.with_suffix(".response.json")),
+        }
+        self.search_calls.append(call)
+        try:
+            async with self.session.post(
+                SUBSCRIPTION_ENDPOINT.removesuffix("/responses") + "/alpha/search",
+                json=body,
+                headers=headers,
+                allow_redirects=False,
+            ) as response:
+                wire = await response.read()
+                prefix.with_suffix(".response.json").write_text(
+                    redact(wire.decode("utf-8", "replace"), self.secrets + [self.token])
+                )
+                call.update(http_status=response.status, status="http_error")
+                if response.status == 200:
+                    result = json.loads(wire)
+                    if (
+                        not isinstance(result, dict)
+                        or not isinstance(result.get("output"), str)
+                        or not isinstance(result.get("results"), list)
+                    ):
+                        call["status"] = "protocol_error"
+                        return web.json_response(
+                            {"error": "Invalid search result"}, status=502
+                        )
+                    call["status"] = "ok"
+                return web.Response(
+                    body=wire,
+                    status=response.status,
+                    headers={
+                        "Content-Type": response.headers.get(
+                            "Content-Type", "application/json"
+                        )
+                    },
+                )
+        except (aiohttp.ClientError, OSError, ValueError) as exc:
+            call.update(status="transport_failed", error=type(exc).__name__)
+            return web.json_response(
+                {"error": "Native search transport failed"}, status=502
+            )
+        finally:
+            save_record(
+                prefix.with_suffix(".json"),
+                json.loads(redact(json.dumps(call), self.secrets + [self.token])),
+            )
 
     async def forward_ws(self, request: web.Request) -> web.StreamResponse:
         if request.path != f"/{self.token}/responses" or self.failure.is_set():

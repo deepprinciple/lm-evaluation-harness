@@ -66,6 +66,76 @@ def payload():
     }
 
 
+@pytest.mark.parametrize("auth_mode", ["chatgpt", "api_key"])
+def test_native_search_preserves_provider_request_and_raw_result(
+    tmp_path, monkeypatch, auth_mode
+):
+    import lm_eval.models.sde_codex_proxy as module
+
+    body = {
+        "model": "test-model",
+        "commands": {"search_query": [{"q": "Python hypot"}]},
+        "settings": {"external_web_access": True},
+        "max_output_tokens": 10000,
+    }
+    answer = {
+        "output": "official docs",
+        "encrypted_output": "opaque provider value",
+        "results": [{"url": "https://docs.python.org/3/library/math.html"}],
+    }
+    seen = []
+
+    async def run():
+        app = web.Application()
+
+        async def search(request):
+            seen.append(await request.json())
+            assert request.headers["Authorization"] == "Bearer fake-subscription"
+            return web.json_response(answer)
+
+        app.router.add_post("/alpha/search", search)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        await web.TCPSite(runner, "127.0.0.1", 0).start()
+        endpoint = f"http://127.0.0.1:{runner.addresses[0][1]}/responses"
+        monkeypatch.setattr(module, "SUBSCRIPTION_ENDPOINT", endpoint)
+        try:
+            async with (
+                aiohttp.ClientSession() as session,
+                ResponsesProxy(
+                    session,
+                    endpoint,
+                    "test-model",
+                    "max",
+                    128000,
+                    "fake-key",
+                    tmp_path,
+                    [],
+                    auth_mode=auth_mode,
+                ) as proxy,
+            ):
+                async with session.post(
+                    proxy.url + "/" + proxy.token + "/alpha/search",
+                    json=body,
+                    headers={"Authorization": "Bearer fake-subscription"},
+                ) as response:
+                    assert response.status == (200 if auth_mode == "chatgpt" else 403)
+                    if auth_mode == "chatgpt":
+                        assert await response.json() == answer
+                        assert proxy.search_calls[0]["payload"] == body
+                        assert proxy.search_calls[0]["status"] == "ok"
+                        raw = tmp_path / "native_search_001.response.json"
+                        assert json.loads(raw.read_text()) == answer
+        finally:
+            await runner.cleanup()
+        assert seen == ([body] if auth_mode == "chatgpt" else [])
+        assert "fake-subscription" not in "".join(
+            p.read_text() for p in tmp_path.glob("*.json")
+        )
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("after_terminal", [False, True])
 def test_downstream_reset_requires_a_valid_terminal(tmp_path, after_terminal):
     async def upstream(request):
