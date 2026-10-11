@@ -132,6 +132,9 @@ def test_native_payload_evidence_and_separate_records(tmp_path: Path) -> None:
     assert saved["native_evidence"] == [native_response()["content"][0]]
     assert result(reply)["results"][0]["snippet"] == "Observed evidence"
     assert result(reply)["citations"][0]["cited_text"] == "Cited page snippet"
+    assert "native_evidence" not in result(reply)
+    assert "encrypted_content" not in result(reply)["results"][0]
+    assert saved["results"][0]["encrypted_content"] == "provider evidence"
     assert p.calls == [{"status": "ok", "answer": "primary answer"}]
     assert not p.failure.is_set()
 

@@ -247,15 +247,19 @@ async def forward_search(request: web.Request, proxy: Any) -> web.Response:
         call["elapsed_seconds"] = round(time.monotonic() - start, 3)
         call.update(_mask(call, [*proxy.secrets, proxy.token, proxy.key]))
         _persist_search(proxy, call)
-    # Raw provider bodies and request payloads stay in the separate audit file.
-    return web.json_response(
-        {
-            k: v
-            for k, v in call.items()
-            if k not in {"payload", "raw_response", "index"}
-        },
-        status=http_status,
-    )
+    # Raw provider bodies, request payloads and encrypted page content stay in
+    # the separate audit file; the agent cannot read the encrypted blobs and
+    # they would only consume its context.
+    reply = {
+        k: v
+        for k, v in call.items()
+        if k not in {"payload", "raw_response", "index", "native_evidence"}
+    }
+    reply["results"] = [
+        {k: v for k, v in row.items() if k != "encrypted_content"}
+        for row in call["results"]
+    ]
+    return web.json_response(reply, status=http_status)
 
 
 def search(query: str) -> dict[str, Any]:

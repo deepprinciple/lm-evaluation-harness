@@ -413,6 +413,8 @@ Search routes:
   `web_search_20250305` and `max_uses=1` for each helper request. The latter limits
   one helper invocation, not the number of searches allowed for a question.
   Helpers have separate raw request/response, search evidence and token records.
+  The agent receives titles, URLs, snippets, the helper summary and citations;
+  encrypted page content and the duplicate native evidence stay in the audit file.
   Text alone is not accepted as proof of a real search. No Jina reader or SerpAPI
   fallback is installed. Reading pages remains a separate native-tool capability
   to validate.
