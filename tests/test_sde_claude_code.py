@@ -1663,3 +1663,28 @@ def test_call_summary_keeps_status_and_usage_without_payloads():
         "usage": {"a": 1},
         "result_count": 2,
     }
+
+
+def test_subagent_refusal_does_not_override_successful_final_answer():
+    lines = trace().splitlines()
+    subagent = [
+        event(
+            "assistant",
+            parent_tool_use_id="agent_1",
+            message={"content": [{"type": "refusal", "refusal": "no"}]},
+        ),
+        event(
+            "stream_event",
+            parent_tool_use_id="agent_1",
+            event={"type": "message_delta", "delta": {"stop_reason": "refusal"}},
+        ),
+    ]
+    body = "\n".join(lines[:2] + [json.dumps(e) for e in subagent] + lines[2:]) + "\n"
+    summary = cc.summarize_trace(body, 0)
+    assert summary["status"] == "ok"
+    assert summary["answer"] == "<answer>A</answer>"
+    assert summary["subagent_refusals"] == 2
+    main_refusal = body.replace(
+        '"parent_tool_use_id": "agent_1", "message"', '"message"'
+    )
+    assert cc.summarize_trace(main_refusal, 0)["status"] == "refusal"

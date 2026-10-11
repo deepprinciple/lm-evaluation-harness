@@ -78,6 +78,7 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
     init = None
     tools = []
     refusal = False
+    subagent_refusals = 0
     errors = []
     stop_reason = None
     try:
@@ -106,13 +107,21 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
             elif event.get("type") == "stream_event":
                 delta = event.get("event", {}).get("delta", {})
                 if delta.get("stop_reason"):
-                    stop_reason = delta["stop_reason"]
-                    refusal = refusal or stop_reason == "refusal"
+                    # Subagent turns cannot decide the question's final status.
+                    if event.get("parent_tool_use_id"):
+                        subagent_refusals += delta["stop_reason"] == "refusal"
+                    else:
+                        stop_reason = delta["stop_reason"]
+                        refusal = refusal or stop_reason == "refusal"
             elif event.get("type") == "assistant":
                 for block in event.get("message", {}).get("content", []):
                     if "tool" in block.get("type", ""):
                         tools.append(block)
-                    refusal = refusal or block.get("type") == "refusal"
+                    if block.get("type") == "refusal":
+                        if event.get("parent_tool_use_id"):
+                            subagent_refusals += 1
+                        else:
+                            refusal = True
         answer = (final or {}).get("result", "")
         if not isinstance(answer, str):
             raise TypeError("Non-text CLI result")
@@ -146,6 +155,7 @@ def summarize_trace(body: str, returncode: int) -> dict[str, Any]:
             "final": final,
             "init": init,
             "tool_calls": tools,
+            "subagent_refusals": subagent_refusals,
             "errors": errors,
             "returncode": returncode,
         }

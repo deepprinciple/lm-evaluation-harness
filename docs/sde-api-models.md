@@ -309,8 +309,10 @@ server search/fetch tool declarations and recorded with their actual budgets and
 usage rather than incorrectly applying the answer-generation budget to them.
 Model mismatches, broken streams, nonzero CLI exits, explicit errors and unfinished
 turns remain failures. A completed search/tool turn is not a completed question.
-A final answer is scored only after the CLI's unique successful result. Scientific
-correctness never selects a retry.
+A final answer is scored only after the CLI's unique successful result. Refusal and
+token/context stop reasons are taken from the main thread; a subagent refusal is
+counted in `subagent_refusals` and does not override a successful final answer.
+Scientific correctness never selects a retry.
 
 Defaults: max effort, four concurrent questions, 3600 seconds per started question,
 three total attempts with 2/4-second technical retry backoff. No search-count or
