@@ -250,7 +250,8 @@ class SDEChatCompletion(LM):
         repeat: int,
     ) -> GenerationResult:
         identity = {
-            "config": self.config,
+            # Concurrency only schedules work; changing it must still resume.
+            "config": {k: v for k, v in self.config.items() if k != "num_concurrent"},
             "task": request.task_name,
             "doc_id": request.doc_id,
             "request_index": request.idx,

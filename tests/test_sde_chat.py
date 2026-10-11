@@ -464,3 +464,12 @@ def test_record_directory_cannot_have_two_active_runners(setup):
         with pytest.raises(BlockingIOError):
             model.generate_until([request(model)])
     assert session.payloads == []
+
+
+def test_changing_concurrency_resumes_existing_records(setup):
+    model, _ = setup([FakeResponse()], num_concurrent=4)
+    first = model.generate_until([request(model)])[0]
+    resumed, resumed_session = setup([], num_concurrent=1)
+    again = resumed.generate_until([request(resumed)])[0]
+    assert again.metadata["record_path"] == first.metadata["record_path"]
+    assert again.text == first.text and resumed_session.payloads == []

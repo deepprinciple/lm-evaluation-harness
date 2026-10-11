@@ -53,7 +53,9 @@ the provider, usage and partial bodies from interrupted reads. Headers and API k
 are not stored; an echoed key is redacted from the body.
 
 Completed records can be reused only for matching identities. Repeats have separate
-records. An interrupted in-flight attempt consumes one attempt when resuming.
+records. `num_concurrent` only schedules work and is excluded from the identity,
+so a run can resume with different concurrency; the timeout, attempt count and
+every other setting remain part of it. An interrupted in-flight attempt consumes one attempt when resuming.
 Use a different `record_dir` for a new independent experiment. Concurrent processes
 cannot use the same directory; file locking requires macOS or Linux.
 
