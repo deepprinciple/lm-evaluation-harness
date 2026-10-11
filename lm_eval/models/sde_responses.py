@@ -563,6 +563,7 @@ class SDEResponses(SDEChatCompletion):
         base_url: str = "https://api.openai.com/v1/responses",
         api_key_env: str = "OPENAI_API_KEY",
         effort: str = "max",
+        reasoning_summary: str = "auto",
         num_concurrent: int = 4,
         timeout: float = 3600,
         max_attempts: int = 3,
@@ -572,6 +573,12 @@ class SDEResponses(SDEChatCompletion):
     ) -> None:
         if effort not in {"minimal", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported Responses effort")
+        # "auto" requests the most detailed reasoning summary the model offers;
+        # "none" omits the field, as the original Astra payload did.
+        if reasoning_summary not in {"auto", "concise", "detailed", "none"}:
+            raise ValueError(
+                "reasoning_summary must be auto, concise, detailed or none"
+            )
         super().__init__(
             model=model,
             max_tokens=max_tokens,
@@ -591,16 +598,20 @@ class SDEResponses(SDEChatCompletion):
         self.config.update(
             api_format="responses",
             effort=effort,
+            reasoning_summary=reasoning_summary,
             stream_sha256=stream_sha256(),
             adapter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         )
 
     def create_payload(self, request: Instance) -> dict[str, Any]:
         messages, max_tokens = self.chat_input(request)
+        reasoning = {"effort": self.config["effort"]}
+        if self.config["reasoning_summary"] != "none":
+            reasoning["summary"] = self.config["reasoning_summary"]
         return {
             "model": self.model,
             "input": messages,
-            "reasoning": {"effort": self.config["effort"]},
+            "reasoning": reasoning,
             "max_output_tokens": max_tokens,
             "stream": True,
         }

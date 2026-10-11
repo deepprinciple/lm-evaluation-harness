@@ -447,10 +447,12 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
         ],
         "output_config": {"effort": "max"},
         "stream": True,
+        "thinking": {"type": "adaptive", "display": "summarized"},
     }
     assert model.config["api_format"] == "messages"
+    assert model.config["thinking_display"] == "summarized"
     assert (
-        not {"reasoning_effort", "thinking", "temperature", "seed", "stop", "tools"}
+        not {"reasoning_effort", "temperature", "seed", "stop", "tools"}
         & payload.keys()
     )
     with pytest.raises(ValueError, match="leading"):
@@ -716,3 +718,15 @@ def test_overloaded_before_stream_does_not_consume_attempts(setup):
     first = record(output)["attempts"][0]
     assert first["budget_exempt"] is True
     assert Path(first["body_path"]).exists()
+
+
+def test_thinking_display_can_restore_the_original_payload(setup):
+    model, _ = setup([], thinking_display="none")
+    assert "thinking" not in model.create_payload(request(model))
+    omitted, _ = setup([], thinking_display="omitted")
+    assert omitted.create_payload(request(omitted))["thinking"] == {
+        "type": "adaptive",
+        "display": "omitted",
+    }
+    with pytest.raises(ValueError, match="thinking_display"):
+        setup([], thinking_display="raw")

@@ -406,12 +406,13 @@ def test_payload_maps_budget_and_preserves_system_and_fewshot_messages(setup):
     assert payload == {
         "model": "gpt-6-astra",
         "input": messages,
-        "reasoning": {"effort": "max"},
+        "reasoning": {"effort": "max", "summary": "auto"},
         "max_output_tokens": 128000,
         "stream": True,
     }
     assert kwargs["max_tokens"] == 128000
     assert model.config["api_format"] == "responses"
+    assert model.config["reasoning_summary"] == "auto"
     assert (
         not {"temperature", "seed", "stop", "tools", "max_tokens", "thinking"}
         & payload.keys()
@@ -981,3 +982,10 @@ def test_native_added_items_can_be_partial_before_tool_execution(item):
     rows[1]["item"] = {"type": item["type"], "id": item["id"], "status": "in_progress"}
     parsed = parse_stream(stream(rows), agent_mode=True)
     assert parsed["stream_error"] is None
+
+
+def test_reasoning_summary_can_restore_the_original_payload(setup):
+    model, _ = setup([], reasoning_summary="none")
+    assert model.create_payload(request(model))["reasoning"] == {"effort": "max"}
+    with pytest.raises(ValueError, match="reasoning_summary"):
+        setup([], reasoning_summary="raw")

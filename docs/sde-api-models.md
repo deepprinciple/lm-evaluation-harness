@@ -157,9 +157,19 @@ The Messages profile sends `output_config.effort`, `max_tokens` and `stream=true
 It does not forward DeepSeek thinking fields, temperature, seed, stop or tools.
 Leading system messages become top-level text blocks; user/assistant few-shot
 messages retain their contents. A system message appearing after conversation
-has begun is rejected. This ports the earlier payload without adding an explicit
-thinking toggle. Requested effort is recorded, but an endpoint accepting a
+has begun is rejected. Requested effort is recorded, but an endpoint accepting a
 parameter does not prove its reasoning behavior; only returned thinking is saved.
+
+Thinking display (2026-10-11 decision, a recorded deviation from the earlier
+Opus scripts): the payload adds `thinking={type: adaptive, display: summarized}`
+by default. Opus 5.5 always thinks and never returns its raw chain of thought;
+with the API default (`omitted`) thinking blocks carry only empty text and a
+signature, while `summarized` returns a server-side summary of that thinking.
+Per the provider documentation, display changes what is returned, not the
+thinking or its billing. The summary is saved in raw records for later review
+and never enters scored text. `thinking_display=omitted` sends the API default
+explicitly; `thinking_display=none` restores the earlier payload without a
+thinking field. Relay acceptance of the field must be checked in a live run.
 
 Example only; neither this migration nor its tests call a live provider:
 
@@ -218,10 +228,14 @@ harness `max_tokens`/`max_gen_toks` budget maps to `max_output_tokens` in the HT
 payload. It is not forwarded under both names. All role/content messages,
 including system prompts and few-shot examples, are retained in `input`.
 
-The payload sends `reasoning={effort: ...}` and `stream=true`, omitting temperature,
-seed, stop and tools. This preserves the old profile; the migration does not
-request extra reasoning summaries or encrypted reasoning, change the model,
-or launch a new run. No model-specific token ceiling is inferred.
+The payload sends `reasoning={effort: ..., summary: auto}` and `stream=true`,
+omitting temperature, seed, stop and tools. Requesting the reasoning summary is a
+2026-10-11 deviation from the earlier Astra payload, matching the Opus thinking
+summary so that readable reasoning summaries are kept for later review; `auto`
+asks for the most detailed summary the model offers. `reasoning_summary=none`
+restores the earlier payload. Encrypted reasoning is still not requested, the
+model is unchanged and no model-specific token ceiling is inferred. Relay
+acceptance of the summary field must be checked in a live run.
 
 This is an example with an explicit budget, not a live compatibility test or
 claim that 128000 is the provider's maximum:

@@ -204,6 +204,7 @@ class SDEMessages(SDEChatCompletion):
         api_key_env: str = "ANTHROPIC_API_KEY",
         effort: str = "max",
         anthropic_version: str = "2023-06-01",
+        thinking_display: str = "summarized",
         num_concurrent: int = 4,
         timeout: float = 3600,
         max_attempts: int = 3,
@@ -213,6 +214,11 @@ class SDEMessages(SDEChatCompletion):
     ) -> None:
         if effort not in {"low", "medium", "high", "max"}:
             raise ValueError("Unsupported Messages effort")
+        # "summarized" returns a server-side summary of the model's thinking
+        # (never the raw chain of thought); "omitted" returns empty thinking
+        # text; "none" sends no thinking field, as the original Opus scripts did.
+        if thinking_display not in {"summarized", "omitted", "none"}:
+            raise ValueError("thinking_display must be summarized, omitted or none")
         super().__init__(
             model=model,
             max_tokens=max_tokens,
@@ -233,6 +239,7 @@ class SDEMessages(SDEChatCompletion):
             api_format="messages",
             effort=effort,
             anthropic_version=anthropic_version,
+            thinking_display=thinking_display,
             stream_sha256=stream_sha256(),
             adapter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         )
@@ -260,6 +267,11 @@ class SDEMessages(SDEChatCompletion):
         }
         if system:
             payload["system"] = system
+        if self.config["thinking_display"] != "none":
+            payload["thinking"] = {
+                "type": "adaptive",
+                "display": self.config["thinking_display"],
+            }
         return payload
 
     def result(self, record: dict[str, Any], path: Path) -> GenerationResult:
