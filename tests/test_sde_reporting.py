@@ -30,7 +30,7 @@ class ToyTask(ConfigurableTask):
         }
 
 
-def make_task(repeats=6):
+def make_task(repeats=6, process_results=score, metric="acc", higher=True):
     return ToyTask(
         config={
             "task": "toy",
@@ -40,9 +40,9 @@ def make_task(repeats=6):
             "doc_to_target": "answer",
             "num_fewshot": 0,
             "repeats": repeats,
-            "process_results": score,
+            "process_results": process_results,
             "metric_list": [
-                {"metric": "acc", "aggregation": "mean", "higher_is_better": True}
+                {"metric": metric, "aggregation": "mean", "higher_is_better": higher}
             ],
             "filter_list": [
                 {
@@ -325,3 +325,21 @@ def test_override_reaches_group_leaves_and_records_effective_config(
     assert results["sde"]["tasks"]["toy"]["repeat_count"] == expected
     assert len(results["samples"]["toy"][0]["resps"][0]) == expected
     assert results["config"].get("repeats") == override
+
+
+def absolute_error(doc, results):
+    return {"mae": float(results[0] != doc["answer"])}
+
+
+def test_lower_is_better_metrics_never_give_incomplete_documents_zero_error():
+    task = make_task(2, absolute_error, metric="mae", higher=False)
+    report = run(task=task)["sde"]["tasks"]["toy"]
+    complete, partial = report["repeats"]
+    assert complete["metrics_all_documents"]["mae,xml"] == pytest.approx(0.6)
+    assert complete["all_documents_unscorable"] == []
+    assert partial["status_counts"] == {"ok": 6, "refusal": 4}
+    assert partial["metrics_all_documents"]["mae,xml"] is None
+    assert partial["all_documents_unscorable"] == ["mae,also_xml", "mae,xml"]
+    assert partial["metrics_completed_documents"]["mae,xml"] == pytest.approx(1 / 6)
+    across = report["across_repeats"]["metrics_all_documents"]["mae,xml"]
+    assert across["mean"] == pytest.approx(0.6) and across["scored_repeats"] == 1

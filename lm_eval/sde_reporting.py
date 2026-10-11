@@ -55,6 +55,11 @@ def collect_sde_results(
     rows: dict[int, list[dict]] = defaultdict(list)
     repeats: list[dict[str, Any]] = []
     bypass = "bypass" in task.aggregation()
+    # Zero credit is the worst score only when higher is better; for an error
+    # metric such as MAE it would be a perfect score.
+    lower_is_better = {
+        metric for metric, higher in task.higher_is_better().items() if higher is False
+    }
     for index in range(repeat_count):
         view = copy(task)
         view._instances = []
@@ -77,6 +82,8 @@ def collect_sde_results(
         completed_scores: dict[str, list[float]] = defaultdict(list)
         document_statuses: Counter = Counter()
         completed_ids = []
+        keys: list[str] = []
+        unscorable: set[str] = set()
         for doc_id, requests in sorted(grouped.items()):
             original_doc_id = doc_id_map[doc_id] if doc_id_map is not None else doc_id
             requests.sort(key=lambda request: request.idx)
@@ -109,14 +116,26 @@ def collect_sde_results(
                 scores = view.process_results(requests[0].doc, answers)
                 for metric, value in scores.items():
                     key = f"{metric},{filter_name}"
-                    value = _number(value) if completed else 0.0
-                    row["metrics"][key] = value
-                    all_scores[key].append(value)
+                    if key not in keys:
+                        keys.append(key)
                     if completed:
+                        value = _number(value)
                         completed_scores[key].append(value)
+                    elif metric in lower_is_better:
+                        value = None
+                        unscorable.add(key)
+                    else:
+                        value = 0.0
+                    row["metrics"][key] = value
+                    if value is not None:
+                        all_scores[key].append(value)
             rows[doc_id].append(row)
 
-        if any(len(values) != len(grouped) for values in all_scores.values()):
+        if any(
+            len(all_scores[key]) != len(grouped)
+            for key in keys
+            if key not in unscorable
+        ):
             raise ValueError("SDE metric keys must cover every document in each repeat")
 
         def aggregate(scores: dict[str, list[float]], keys: list[str]) -> dict:
@@ -129,6 +148,8 @@ def collect_sde_results(
                 for key in keys
             }
 
+        all_documents = aggregate(all_scores, keys)
+        all_documents.update(dict.fromkeys(unscorable))
         repeats.append(
             {
                 "repeat_index": index,
@@ -136,10 +157,11 @@ def collect_sde_results(
                 "completed_documents": len(completed_ids),
                 "completed_doc_ids": completed_ids,
                 "status_counts": dict(sorted(document_statuses.items())),
-                "metrics_all_documents": aggregate(all_scores, list(all_scores)),
-                "metrics_completed_documents": aggregate(
-                    completed_scores, list(all_scores)
-                ),
+                "metrics_all_documents": all_documents,
+                "metrics_completed_documents": aggregate(completed_scores, keys),
+                # Lower-is-better metrics with incomplete documents have no
+                # all-document score; zero credit would reward failures.
+                "all_documents_unscorable": sorted(unscorable),
             }
         )
     across: dict[str, dict] = {}

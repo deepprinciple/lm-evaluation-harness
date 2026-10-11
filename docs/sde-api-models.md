@@ -109,6 +109,10 @@ the aggregated results JSON. Each task contains:
   its requests have status `ok`; mixed failure kinds use `mixed_incomplete`.
 - `metrics_all_documents`: original task filters/scoring/aggregation applied
   independently to this draw, with incomplete documents receiving zero credit.
+  For metrics declared `higher_is_better: false` (such as MAE) zero would be a
+  perfect score, so a draw with incomplete documents reports `null` for them and
+  lists the keys in `all_documents_unscorable`; use the completed-only scores
+  and status counts for those metrics.
 - `metrics_completed_documents`: scores restricted to documents with `ok`
   responses; values are `null` if no documents completed.
 - `across_repeats`: the unweighted mean and sample standard deviation of each
