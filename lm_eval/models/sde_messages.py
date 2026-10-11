@@ -97,6 +97,15 @@ def parse_stream(
                 if index in closed:
                     raise ValueError("delta after block_stop")
                 content, delta = blocks[index], event["delta"]
+                if agent_mode and delta.get("type") == "citations_delta":
+                    if content["type"] != "text" or not isinstance(
+                        delta.get("citation"), dict
+                    ):
+                        raise ValueError("incompatible citation delta")
+                    content.setdefault("citations", []).append(
+                        copy.deepcopy(delta["citation"])
+                    )
+                    continue
                 fields = {
                     "text_delta": ("text", "text"),
                     "thinking_delta": ("thinking", "thinking"),

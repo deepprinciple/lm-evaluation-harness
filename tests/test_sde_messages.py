@@ -72,6 +72,52 @@ def stream(items, crlf=False):
     return body.replace("\n", "\r\n") if crlf else body
 
 
+def test_agent_native_citation_delta_is_preserved():
+    citation = {
+        "type": "web_search_result_location",
+        "url": "https://docs.python.org/3/library/math.html",
+        "title": "math",
+        "cited_text": "Euclidean norm",
+        "encrypted_index": "opaque",
+    }
+    items = [
+        start(),
+        *block(0, "text", "text", "hypot computes a norm"),
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {}},
+        {"type": "message_stop"},
+    ]
+    items.insert(
+        3,
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "citations_delta", "citation": citation},
+        },
+    )
+    parsed = parse_stream(stream(items), "claude-opus-5-5", agent_mode=True)
+    assert parsed["stream_error"] is None
+    assert parsed["message_stop"] and parsed["blocks_closed"]
+    assert parsed["response"]["content"][0]["citations"] == [citation]
+    assert parse_stream(stream(items), "claude-opus-5-5")["stream_error"] is not None
+
+
+@pytest.mark.parametrize("citation", [None, "wrong", []])
+def test_agent_malformed_citation_delta_is_rejected(citation):
+    items = [start(), *block(0, "text", "text", "hypot computes a norm")]
+    items.insert(
+        3,
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "citations_delta", "citation": citation},
+        },
+    )
+    assert (
+        parse_stream(stream(items), "claude-opus-5-5", agent_mode=True)["stream_error"]
+        is not None
+    )
+
+
 class FakeContent:
     def __init__(self, body, error=None, blocked=False, fragment=False):
         self.body = body
