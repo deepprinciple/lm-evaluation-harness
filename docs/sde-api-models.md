@@ -18,8 +18,9 @@ same value as `--gen_kwargs max_tokens=N` so task YAML budgets such as 4096
 cannot silently truncate the intended experiment budget.
 
 The default profile sends `reasoning_effort=max`, `thinking.type=enabled` and
-`stream=false`. It omits temperature, seed and stop, including those inherited from
-YAML. Other generation kwargs are rejected, rather than silently forwarded.
+`stream=false`. It drops `temperature`, `do_sample` and stop sequences (`until`),
+including those inherited from YAML. Any other generation kwarg, including `seed`,
+is rejected rather than silently forwarded.
 `reasoning_effort` and `thinking` are model arguments.
 
 The defaults are four concurrent questions, a 3600-second question deadline and
@@ -481,7 +482,7 @@ reported rather than claimed as identical.
 
 ```bash
 lm_eval --model sde-codex \
-  --model_args 'model=deepseek-flash,max_tokens=128000,record_dir=results/flash_codex_native/raw,codex_bin=/opt/sde/codex,cli_version=0.162.0,tool_python=/opt/sde/tools-venv/bin/python,model_catalog=/opt/sde/catalogs/flash.json,base_url=https://api.deepseek.com/responses,api_key_env=DEEPSEEK_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3' \
+  --model_args 'model=deepseek-flash,max_tokens=128000,record_dir=results/flash_codex_native/raw,codex_bin=/opt/sde/codex,cli_version=0.162.1,tool_python=/opt/sde/tools-venv/bin/python,model_catalog=/opt/sde/catalogs/flash.json,base_url=https://api.deepseek.com/responses,api_key_env=DEEPSEEK_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3' \
   --gen_kwargs max_tokens=128000 \
   --tasks science_chem_quantum_software --limit 1 \
   --apply_chat_template --log_samples --output_path results/flash_codex_native
@@ -513,7 +514,7 @@ provider requests/results and CLI traces were preserved; live evidence is under
 The final relay rerun (`retry4`) completed in 83.4 seconds with native search/open
 events, NumPy output `5.0` and file read-back `5.0`. Commentary remains in raw
 evidence; only the final-answer phase is matched to the CLI answer. The scoped
-adapter regression suite passed 477 tests, and changed Python files passed Ruff
+adapter regression suite passed 483 tests at commit `1942210a`, and changed Python files passed Ruff
 and mypy. These checks do not prove that every possible native tool was exercised.
 
 ## Benchmark-source audit
