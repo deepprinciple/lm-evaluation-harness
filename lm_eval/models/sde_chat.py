@@ -13,6 +13,11 @@ from typing import Any
 from lm_eval.api.instance import GenerationResult, Instance
 from lm_eval.api.model import LM, CacheHook
 from lm_eval.api.registry import register_model
+from lm_eval.models.sde_stream import (
+    connect_failed,
+    pre_response_retryable,
+    retry_delay,
+)
 
 
 def digest(value: Any) -> str:
@@ -177,6 +182,10 @@ class SDEChatCompletion(LM):
                 "record_path": str(path),
                 "repeat_index": record["repeat_index"],
                 "attempts": len(record["attempts"]),
+                "budget_attempts": sum(
+                    not attempt.get("budget_exempt") for attempt in record["attempts"]
+                ),
+                "deadline_windows": len(record.get("deadline_windows") or [None]),
                 "usage": response.get("usage") or {},
                 "attempt_usage": [
                     (attempt.get("response") or {}).get("usage") or {}
@@ -202,6 +211,8 @@ class SDEChatCompletion(LM):
                 attempt["http_status"] = response.status
                 async for chunk in response.content.iter_chunked(65536):
                     chunks.append(chunk)
+                if response.status != 200:
+                    attempt["retry_after"] = response.headers.get("Retry-After")
             code = attempt["http_status"]
             if code == 200:
                 body = b"".join(chunks).decode("utf-8").replace(key, "<redacted>")
@@ -213,8 +224,14 @@ class SDEChatCompletion(LM):
                     if code in (408, 429) or code >= 500
                     else "http_error"
                 )
+                if pre_response_retryable(
+                    code, b"".join(chunks).decode("utf-8", errors="replace")
+                ):
+                    attempt["budget_exempt"] = True
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             attempt.update(status="transport_failed", error=type(exc).__name__)
+            if connect_failed(exc):
+                attempt["budget_exempt"] = True
         except (ValueError, TypeError, AttributeError, KeyError) as exc:
             attempt.update(status="protocol_error", error=type(exc).__name__)
         finally:
@@ -243,6 +260,7 @@ class SDEChatCompletion(LM):
         }
         path = self.record_dir / f"{digest(identity)}.json"
         async with semaphore:
+            window = {"started_at": time.time()}
             if path.exists():
                 record = json.loads(path.read_text())
                 if record["identity"] != identity:
@@ -258,11 +276,17 @@ class SDEChatCompletion(LM):
                 if record["attempts"] and record["attempts"][-1]["status"] == "running":
                     record["attempts"][-1]["status"] = "transport_failed"
                     record["attempts"][-1]["error"] = "ProcessInterrupted"
+                # A resumed question gets a fresh deadline window; downtime is not
+                # charged to the model. The interrupted attempt above still counts.
+                record.setdefault(
+                    "deadline_windows", [{"started_at": record["started_at"]}]
+                ).append(window)
             else:
                 record = {
                     "identity": identity,
                     "repeat_index": repeat,
-                    "started_at": time.time(),
+                    "started_at": window["started_at"],
+                    "deadline_windows": [window],
                     "status": "running",
                     "answer": "",
                     "attempts": [],
@@ -276,18 +300,30 @@ class SDEChatCompletion(LM):
                 "empty",
                 "generation_incomplete",
             }
-            deadline = record["started_at"] + self.config["timeout"]
-            for number in range(len(record["attempts"]), self.config["max_attempts"]):
-                previous = record["attempts"][-1] if record["attempts"] else None
+            deadline = window["started_at"] + self.config["timeout"]
+            while True:
+                attempts = record["attempts"]
+                consumed = sum(not attempt.get("budget_exempt") for attempt in attempts)
+                previous = attempts[-1] if attempts else None
                 if previous and previous["status"] not in retryable:
                     break
-                delay = min(2**number, 30) if number else 0
+                if previous and previous.get("budget_exempt"):
+                    streak = 0
+                    for earlier in reversed(attempts):
+                        if not earlier.get("budget_exempt"):
+                            break
+                        streak += 1
+                    delay = retry_delay(previous.get("retry_after"), streak)
+                elif consumed >= self.config["max_attempts"]:
+                    break
+                else:
+                    delay = min(2**consumed, 30) if consumed else 0
                 if deadline - time.time() <= delay:
                     record["status"] = "question_timeout"
                     break
                 await asyncio.sleep(delay)
                 attempt = {
-                    "attempt": number + 1,
+                    "attempt": len(attempts) + 1,
                     "record_path": str(path),
                     "status": "running",
                     "started_at": time.time(),

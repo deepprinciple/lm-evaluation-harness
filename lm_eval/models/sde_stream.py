@@ -13,6 +13,41 @@ def stream_sha256() -> str:
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
+# Failures before any upstream generation is returned: retrying them does not
+# consume the attempt budget and remains bounded by the question deadline.
+PRE_RESPONSE_RETRY_STATUSES = frozenset({429, 503, 529})
+QUOTA_MARKERS = (
+    "usage_limit_reached",
+    "insufficient_quota",
+    "usage limit exceeded",
+    "hit your usage limit",
+)
+
+
+def pre_response_retryable(status: int, body: str) -> bool:
+    lowered = body.lower()
+    return status in PRE_RESPONSE_RETRY_STATUSES and not any(
+        marker in lowered for marker in QUOTA_MARKERS
+    )
+
+
+def connect_failed(exc: BaseException) -> bool:
+    import aiohttp
+
+    return isinstance(
+        exc, (aiohttp.ClientConnectorError, aiohttp.ConnectionTimeoutError)
+    )
+
+
+def retry_delay(retry_after: Any, retry: int) -> float:
+    """Honor a numeric Retry-After, otherwise use capped exponential backoff."""
+    try:
+        seconds = float(retry_after)
+    except (TypeError, ValueError):
+        seconds = -1.0
+    return min(seconds, 60.0) if seconds >= 0 else float(min(2**retry, 60))
+
+
 def sse_events(body: str, allow_done: bool = False) -> Iterator[dict[str, Any]]:
     frames = body.replace("\r\n", "\n").replace("\r", "\n").split("\n\n")
     for position, frame in enumerate(frames):
@@ -72,6 +107,8 @@ async def capture_stream(
                             + "\n"
                         )
                     raw.flush()
+                if response.status != 200:
+                    attempt["retry_after"] = response.headers.get("Retry-After")
             code = attempt["http_status"]
             if code != 200:
                 attempt["status"] = (
@@ -79,8 +116,14 @@ async def capture_stream(
                     if code in (408, 429) or code >= 500
                     else "http_error"
                 )
+                if pre_response_retryable(
+                    code, b"".join(chunks).decode("utf-8", errors="replace")
+                ):
+                    attempt["budget_exempt"] = True
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             attempt.update(status="transport_failed", error=type(exc).__name__)
+            if connect_failed(exc):
+                attempt["budget_exempt"] = True
         except asyncio.CancelledError:
             attempt.update(status="transport_failed", error="CancelledError")
             raise

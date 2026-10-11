@@ -23,8 +23,10 @@ YAML. Other generation kwargs are rejected, rather than silently forwarded.
 
 The defaults are four concurrent questions, a 3600-second question deadline and
 at most three total attempts. The deadline starts when a worker is available and
-includes request time and backoff. Once started, it also includes downtime after
-process interruption. The timeout and attempt count are configurable; these
+includes request time and backoff. Resuming an interrupted question opens a fresh
+deadline window, so process downtime is not charged as a model timeout; every
+window is saved under `deadline_windows`, and `elapsed_seconds` remains wall-clock
+time since the first start. The timeout and attempt count are configurable; these
 runtime defaults do not imply equal compute across models.
 
 This is a usage example, not a record of an executed experiment:
@@ -56,7 +58,13 @@ Use a different `record_dir` for a new independent experiment. Concurrent proces
 cannot use the same directory; file locking requires macOS or Linux.
 
 408, 429, 5xx, transport errors, malformed responses and empty/incomplete generation
-can trigger bounded technical retries. A normal answer, a structured refusal or
+can trigger bounded technical retries. Failures before any generation is returned
+(connection not established, or 429/503/529 without a quota marker such as
+`insufficient_quota`) are retried without consuming the attempt budget, using
+`Retry-After` (capped at 60 seconds) or capped exponential backoff, and only within
+the question deadline. They are kept as attempts marked `budget_exempt`;
+`response_metadata.budget_attempts` counts the attempts that used the budget.
+500/502/504/524, quota errors and mid-stream failures still consume an attempt. A normal answer, a structured refusal or
 length truncation does not trigger retry. Scientific scores are never consulted.
 401/403 is recorded and stops the batch. After fixing credentials, use a new
 record directory; the saved authentication failure is not silently reused as an
@@ -308,7 +316,11 @@ Defaults: max effort, four concurrent questions, 3600 seconds per started questi
 three total attempts with 2/4-second technical retry backoff. No search-count or
 turn-count limit and no whole-question token cap are imposed. `max_tokens` is a
 per-response budget; task/CLI generation kwargs retain their existing precedence.
-Started attempts, helpers, tools and backoff share the question deadline. Observable
+Started attempts, helpers, tools and backoff share the question deadline. The local
+proxy transparently retries the same pre-response failures as the API adapters
+(connection errors and non-quota 429/503/529) before forwarding anything to the
+CLI, recording each under the call's `upstream_retries`; the CLI receives one
+response. Other upstream failures still end the attempt. Observable
 401/403 stops the batch; refusals and token/context limits are not technical retries.
 
 Every attempt retains trace, stderr, tool calls, primary/helper request parameters,

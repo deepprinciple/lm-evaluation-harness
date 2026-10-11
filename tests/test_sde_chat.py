@@ -46,14 +46,27 @@ class FakeContent:
 
 
 class FakeResponse:
-    def __init__(self, status=200, body=None, error=None, blocked=False, delay=0):
+    def __init__(
+        self,
+        status=200,
+        body=None,
+        error=None,
+        blocked=False,
+        delay=0,
+        headers=None,
+        enter_error=None,
+    ):
         self.status = status
-        self.session: "FakeSession"
+        self.headers = headers or {}
+        self.enter_error = enter_error
+        self.session: FakeSession
         self.content = FakeContent(
             body or json.dumps(response()).encode(), error, blocked, delay
         )
 
     async def __aenter__(self):
+        if self.enter_error:
+            raise self.enter_error
         self.session.active += 1
         self.session.max_active = max(self.session.max_active, self.session.active)
         return self
@@ -362,6 +375,83 @@ def test_interrupted_attempt_consumes_one_attempt_when_resuming(setup):
     assert recovered.metadata["attempts"] == 2
     assert len(session.payloads) == 2
     assert json.loads(path.read_text())["attempts"][0]["error"] == "ProcessInterrupted"
+
+
+def connect_error():
+    from types import SimpleNamespace
+
+    key = SimpleNamespace(ssl=None, host="relay", port=443)
+    return aiohttp.ClientConnectorError(key, OSError(61, "refused"))
+
+
+def test_pre_response_failures_do_not_consume_attempts(setup):
+    model, _ = setup(
+        [
+            FakeResponse(status=429, body=b'{"error":"rate"}'),
+            FakeResponse(enter_error=connect_error()),
+            FakeResponse(status=529, body=b'{"error":"overloaded"}'),
+            FakeResponse(),
+        ],
+        max_attempts=1,
+    )
+    result = model.generate_until([request(model)])[0]
+    assert result.metadata["status"] == "ok"
+    assert result.metadata["attempts"] == 4
+    assert result.metadata["budget_attempts"] == 1
+    with open(result.metadata["record_path"]) as file:
+        record = json.load(file)
+    assert [a.get("budget_exempt", False) for a in record["attempts"]] == [
+        True,
+        True,
+        True,
+        False,
+    ]
+
+
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (429, b'{"error":{"code":"insufficient_quota"}}'),
+        (500, b"server error"),
+        (524, b"timeout"),
+    ],
+)
+def test_quota_and_possibly_billed_failures_consume_attempts(setup, status, body):
+    model, session = setup([FakeResponse(status=status, body=body)], max_attempts=1)
+    result = model.generate_until([request(model)])[0]
+    assert result.metadata["status"] == "transport_failed"
+    assert result.metadata["budget_attempts"] == len(session.payloads) == 1
+
+
+def test_retry_delay_honors_retry_after_with_cap():
+    from lm_eval.models.sde_stream import retry_delay
+
+    assert retry_delay("7", 3) == 7.0
+    assert retry_delay("600", 0) == 60.0
+    assert retry_delay(None, 1) == 2.0
+    assert retry_delay("Wed, 21 Oct 2026 07:28:00 GMT", 10) == 60.0
+
+
+def test_resumed_question_gets_a_fresh_deadline_window(setup):
+    model, session = setup([FakeResponse(), FakeResponse()], timeout=60)
+    req = request(model)
+    result = model.generate_until([req])[0]
+    from pathlib import Path
+
+    path = Path(result.metadata["record_path"])
+    record = json.loads(path.read_text())
+    # Simulate a crash long ago: wall-clock time since the first start exceeds
+    # the timeout, but the downtime must not be charged to the question.
+    record["started_at"] -= 3600
+    record["deadline_windows"][0]["started_at"] -= 3600
+    record["finished"] = False
+    record["attempts"][-1]["status"] = "running"
+    path.write_text(json.dumps(record))
+    recovered = model.generate_until([req])[0]
+    assert recovered.metadata["status"] == "ok"
+    assert recovered.metadata["deadline_windows"] == 2
+    assert recovered.metadata["budget_attempts"] == 2
+    assert len(session.payloads) == 2
 
 
 def test_record_directory_cannot_have_two_active_runners(setup):

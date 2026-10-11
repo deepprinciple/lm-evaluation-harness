@@ -160,6 +160,7 @@ class FakeContent:
 class FakeResponse:
     def __init__(self, body=None, status=200, **kwargs):
         self.status = status
+        self.headers = {}
         self.content = FakeContent(
             stream(events()).encode() if body is None else body, **kwargs
         )

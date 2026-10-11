@@ -1524,3 +1524,89 @@ print(TRACE,end="")
         server.shutdown()
         server.server_close()
         worker.join(timeout=2)
+
+
+class FailingConnect:
+    async def __aenter__(self):
+        from types import SimpleNamespace
+
+        key = SimpleNamespace(ssl=None, host="provider", port=443)
+        raise aiohttp.ClientConnectorError(key, OSError(61, "refused"))
+
+    async def __aexit__(self, *args):
+        pass
+
+
+class SequenceSession:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return next(self.responses)
+
+
+def post_main(tmp_path, responses, monkeypatch):
+    from lm_eval.models import sde_cc_proxy
+
+    monkeypatch.setattr(sde_cc_proxy, "retry_delay", lambda *args: 0)
+
+    async def check():
+        session = SequenceSession(responses)
+        async with MessagesProxy(
+            session,
+            "https://provider.invalid",
+            "test-model",
+            "max",
+            128000,
+            "fake-key",
+            tmp_path,
+            [],
+        ) as proxy:
+            async with aiohttp.ClientSession() as client, client.post(
+                proxy.url + "/v1/messages",
+                headers={"x-api-key": proxy.token},
+                json={
+                    "model": "test-model",
+                    "max_tokens": 128000,
+                    "output_config": {"effort": "max"},
+                },
+            ) as response:
+                body = await response.text()
+            return response.status, body, proxy, session
+
+    return asyncio.run(check())
+
+
+def test_proxy_retries_pre_response_failures_transparently(tmp_path, monkeypatch):
+    status, body, proxy, session = post_main(
+        tmp_path,
+        [
+            FakeHTTPResponse(status=529, body='{"error":{"type":"overloaded_error"}}'),
+            FailingConnect(),
+            FakeHTTPResponse(),
+        ],
+        monkeypatch,
+    )
+    assert status == 200 and "message_stop" in body
+    call = proxy.calls[0]
+    assert call["status"] == "ok" and call["fatal"] is False
+    assert [r.get("http_status") for r in call["upstream_retries"]] == [529, None]
+    assert call["upstream_retries"][1]["error"] == "ClientConnectorError"
+    assert len(session.calls) == 3
+    assert not proxy.failure.is_set()
+    saved = json.loads((tmp_path / "api_001.json").read_text())
+    assert len(saved["upstream_retries"]) == 2
+
+
+def test_proxy_forwards_quota_errors_without_retry(tmp_path, monkeypatch):
+    quota = '{"error":{"type":"rate_limit_error","message":"insufficient_quota"}}'
+    status, body, proxy, session = post_main(
+        tmp_path, [FakeHTTPResponse(status=429, body=quota)], monkeypatch
+    )
+    assert status == 429 and body == quota
+    assert proxy.calls[0]["status"] == "transport_failed"
+    assert proxy.calls[0]["fatal"] is True
+    assert "upstream_retries" not in proxy.calls[0]
+    assert len(session.calls) == 1

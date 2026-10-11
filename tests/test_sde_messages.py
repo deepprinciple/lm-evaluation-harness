@@ -139,6 +139,7 @@ class FakeContent:
 class FakeResponse:
     def __init__(self, body=None, status=200, **kwargs):
         self.status = status
+        self.headers = {}
         self.content = FakeContent(
             stream(events()).encode() if body is None else body, **kwargs
         )
@@ -696,3 +697,22 @@ def test_invalid_utf8_cannot_be_scored_as_normal_text(setup):
     output = model.generate_until([request(model)])[0]
     assert output.metadata["status"] == "protocol_error"
     assert output.text == ""
+
+
+def test_overloaded_before_stream_does_not_consume_attempts(setup):
+    model, session = setup(
+        [
+            FakeResponse(
+                body=b'{"type":"error","error":{"type":"overloaded_error"}}', status=529
+            ),
+            FakeResponse(),
+        ],
+        max_attempts=1,
+    )
+    output = model.generate_until([request(model)])[0]
+    assert output.metadata["status"] == "ok"
+    assert output.metadata["budget_attempts"] == 1
+    assert len(session.payloads) == 2
+    first = record(output)["attempts"][0]
+    assert first["budget_exempt"] is True
+    assert Path(first["body_path"]).exists()

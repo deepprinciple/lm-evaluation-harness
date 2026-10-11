@@ -1222,3 +1222,39 @@ def test_timeout_terminates_subprocess_and_retains_partial_trace(model, tmp_path
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
     assert "partial trace" in Path(raw["attempts"][0]["stderr_path"]).read_text()
+
+
+def test_responses_proxy_retries_503_before_stream(tmp_path, monkeypatch):
+    from lm_eval.models import sde_cc_proxy
+
+    monkeypatch.setattr(sde_cc_proxy, "retry_delay", lambda *args: 0)
+
+    async def run():
+        seen = []
+
+        async def upstream(req):
+            seen.append(await req.json())
+            if len(seen) == 1:
+                return web.json_response({"error": "unavailable"}, status=503)
+            return web.Response(text=stream(), content_type="text/event-stream")
+
+        async with (
+            local_provider(upstream) as endpoint,
+            aiohttp.ClientSession() as session,
+            ResponsesProxy(
+                session, endpoint, "test-model", "max", 128000, "fake", tmp_path, []
+            ) as proxy,
+        ):
+            async with session.post(
+                proxy.url + "/" + proxy.token + "/responses",
+                headers={"Authorization": "Bearer " + proxy.token},
+                json=payload(),
+            ) as response:
+                assert response.status == 200
+                await response.read()
+            call = proxy.calls[0]
+            assert call["status"] == "ok"
+            assert call["upstream_retries"][0]["http_status"] == 503
+            assert len(seen) == 2 and seen[0] == seen[1]
+
+    asyncio.run(run())

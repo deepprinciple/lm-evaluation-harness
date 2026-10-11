@@ -1,9 +1,11 @@
 """Transparent local Messages capture for recorded Claude Code runs."""
 
 import asyncio
+import contextlib
 import json
 import os
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,12 @@ from aiohttp import web
 
 from lm_eval.models.sde_chat import save_record
 from lm_eval.models.sde_messages import parse_stream
+from lm_eval.models.sde_stream import (
+    PRE_RESPONSE_RETRY_STATUSES,
+    connect_failed,
+    pre_response_retryable,
+    retry_delay,
+)
 
 
 def redact(text: str, secrets: list[str]) -> str:
@@ -137,6 +145,18 @@ def helper_evidence(body: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"type": tool["type"], "name": tool.get("name")} for tool in tools]
 
 
+class BufferedResponse:
+    """An upstream error body already read for a retry decision, replayed once."""
+
+    def __init__(self, status: int, headers: Any, body: bytes):
+        self.status, self.headers, self.body = status, headers, body
+        self.content = self
+
+    async def iter_chunked(self, size: int) -> AsyncIterator[bytes]:
+        if self.body:
+            yield self.body
+
+
 class MessagesProxy:
     """Capture unchanged request/response bodies; enforce the declared profile."""
 
@@ -171,6 +191,54 @@ class MessagesProxy:
 
     async def __aexit__(self, *args):
         await self.runner.cleanup()
+
+    @contextlib.asynccontextmanager
+    async def upstream(
+        self, url: str, body: Any, headers: dict[str, str], call: dict[str, Any]
+    ) -> AsyncIterator[Any]:
+        """Retry failures before any upstream generation; the CLI sees one response.
+
+        Only connection failures and 429/503/529 without a quota marker are
+        retried, each recorded under upstream_retries. The question deadline
+        cancels the attempt, and with it these retries.
+        """
+        retries = 0
+        while True:
+            async with contextlib.AsyncExitStack() as stack:
+                try:
+                    response = await stack.enter_async_context(
+                        self.session.post(
+                            url, json=body, headers=headers, allow_redirects=False
+                        )
+                    )
+                except aiohttp.ClientError as exc:
+                    if not connect_failed(exc):
+                        raise
+                    retry_after = None
+                    failure: dict[str, Any] = {"error": type(exc).__name__}
+                else:
+                    if response.status not in PRE_RESPONSE_RETRY_STATUSES:
+                        yield response
+                        return
+                    wire = b"".join(
+                        [chunk async for chunk in response.content.iter_chunked(65536)]
+                    )
+                    text = redact(
+                        wire.decode("utf-8", "replace"), self.secrets + [self.token]
+                    )
+                    if not pre_response_retryable(response.status, text):
+                        yield BufferedResponse(response.status, response.headers, wire)
+                        return
+                    retry_after = response.headers.get("Retry-After")
+                    failure = {
+                        "http_status": response.status,
+                        "retry_after": retry_after,
+                        "body": text,
+                    }
+            retries += 1
+            call.setdefault("upstream_retries", []).append(failure)
+            self.persist(call)
+            await asyncio.sleep(retry_delay(retry_after, retries))
 
     def persist(self, call: dict[str, Any]) -> None:
         call["fatal"] = call["status"] not in ("running", "ok") and (
@@ -301,11 +369,8 @@ class MessagesProxy:
         pending = b""
         downstream = None
         try:
-            async with self.session.post(
-                self.endpoint + request.path,
-                json=body,
-                headers=headers,
-                allow_redirects=False,
+            async with self.upstream(
+                self.endpoint + request.path, body, headers, call
             ) as response:
                 call["http_status"] = response.status
                 downstream = web.StreamResponse(

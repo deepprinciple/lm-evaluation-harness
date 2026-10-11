@@ -505,11 +505,8 @@ class ResponsesProxy(MessagesProxy):
         downstream = None
         terminal_forwarded = False
         try:
-            async with self.session.post(
-                self.endpoint,
-                json=call["payload"],
-                headers=headers,
-                allow_redirects=False,
+            async with self.upstream(
+                self.endpoint, call["payload"], headers, call
             ) as response:
                 call["http_status"] = response.status
                 if channel is None:
