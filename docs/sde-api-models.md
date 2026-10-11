@@ -356,9 +356,15 @@ They do not inherit the parent process's API-key environment.
 
 Search routes:
 
-- Astra and the subscription profile use Codex `web_search="live"` and the
-  provider's Responses search tool. Actual `web_search_call` events and results
-  are retained, not replaced by an external search service.
+- Astra profiles request Codex `web_search="live"`. The installed CLI/catalog
+  determines whether search is hosted inside Responses or exposed as the
+  standalone native web tool. Codex 0.162.1 subscription code mode uses
+  `/alpha/search`; the proxy forwards that exact route only to the fixed official
+  subscription backend, retaining commands, settings, its tool budget and raw
+  results separately. It never substitutes a subscription search for an API-key
+  profile. The tested relay returned 404 for `/v1/alpha/search` and its code-mode
+  tool inventory did not expose search; a working primary Responses call does
+  not establish working native search.
 - Flash@Codex uses the previously verified DeepSeek Anthropic native search API
   via a small client-side MCP bridge. The primary model stays on Responses.
   Codex's unsupported hosted Responses search route is disabled for this model;
@@ -391,8 +397,9 @@ The Responses proxy preserves CLI tools, tool_choice, namespaces, additional_too
 and tool history. It records the original payload and effective request; the only
 budget normalization is explicit `max_output_tokens` injection, not native Codex
 configuration. A conflicting budget echo is rejected; an absent echo does not
-prove enforcement. Acceptance of this field on the subscription backend remains
-unverified. Unsupported requests fail visibly rather than silently removing
+prove enforcement. The 2026-10-11 subscription smoke accepted and echoed 128000;
+this verifies the request/echo, not independent enforcement or a provider maximum.
+Unsupported requests fail visibly rather than silently removing
 parameters, tools or changing models.
 
 WebSocket requests are recorded and bridged to HTTP SSE. A known previous-response
@@ -403,6 +410,12 @@ as a control, not a billed inference or fabricated answer. Native tool SSE and
 CLI events are retained in agent mode; no-tools API parsers continue rejecting
 actual tool use. Missing terminals, identity changes, replayed sequence numbers
 and stream errors are not accepted as completed answers.
+Subscription terminals with an empty output snapshot are accepted only when all
+indexed stream items were explicitly closed and validated. The reconstructed
+snapshot is marked separately; raw SSE is unchanged. A client reset after a
+successfully forwarded, validated terminal is retained as a tail transport event;
+an early reset remains a failure. Native Messages citation deltas are retained
+in agent mode without weakening the no-tools parser.
 
 The default max effort/concurrency/deadline/technical retry budgets match Claude
 Code. No human-imposed search or turn cap remains. Every attempt stores primary
@@ -432,3 +445,21 @@ required endpoint and a catalog/model available to that account. These examples
 are not a full-run authorization. Tests cover self-contained fake CLI/provider
 processes; live native-tool and subscription compatibility must be verified
 separately. Historical restricted-run evidence remains unchanged.
+
+### Live engineering smoke, 2026-10-11
+
+On Mac, using Claude Code 2.1.296, Codex 0.162.1, Node 22.16.0, max effort,
+128000 requested primary output tokens and a 600-second question deadline:
+
+| Path | Primary answer | Actual search/read/compute/file checks |
+| --- | --- | --- |
+| Flash@Claude Code | Passed | All four passed |
+| Opus@Claude Code | Passed | All four passed |
+| Flash@Codex API | Passed | All four passed, DeepSeek native search bridge |
+| Astra@Codex subscription | Passed | All four passed, official native `/alpha/search` |
+| Astra@Codex relay API | Passed | Partial: page read passed; search absent, default system Python lacked NumPy and no file was written |
+
+These are synthetic engineering requests, not scientific scores or full-run
+authorization. Subscription auth remained unchanged. Earlier failed attempts,
+provider requests/results and CLI traces were preserved; live evidence is under
+`results_question/lm_eval_native_smoke_20261011` in the surrounding SDE workspace.
