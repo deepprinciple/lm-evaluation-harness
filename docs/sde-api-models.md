@@ -242,10 +242,12 @@ terminal-only stream without requiring omitted optional intermediate events.
 
 A completed response's output is authoritative. Text deltas are preserved as
 stream evidence and are not an answer fallback when terminal output is empty.
-This intentionally tightens the old script's delta fallback. Effort mismatch,
-malformed protocol, empty output, 524, transport failure and incomplete generation
-use the existing bounded technical retry policy. As in the other profiles,
-refusals and token truncation are terminal, and scientific scores are never
+This intentionally tightens the old script's delta fallback. Malformed protocol,
+empty output, 524, transport failure and incomplete generation use the existing
+bounded technical retry policy. An effort echo that differs from the request is
+recorded as terminal `effort_mismatch`, like a model mismatch: the endpoint's
+profile is deterministic, so a retry would only repeat the cost. As in the other
+profiles, refusals and token truncation are terminal, and scientific scores are never
 consulted to select an attempt. `response.incomplete` with reason
 `max_output_tokens` is recorded as truncated; content filtering or a refusal
 content block is recorded as refusal. Explicit failed/error events are recorded

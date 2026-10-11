@@ -535,11 +535,12 @@ def classify(
         if reason == "content_filter":
             return "refusal", answer
         return "generation_incomplete", answer
-    if (
-        response.get("error")
-        or (response.get("reasoning") or {}).get("effort") != effort
-    ):
+    if response.get("error"):
         return "protocol_error", answer
+    # Like a model mismatch, an endpoint ignoring the requested effort is a
+    # deterministic profile difference; retrying would only repeat the cost.
+    if (response.get("reasoning") or {}).get("effort") != effort:
+        return "effort_mismatch", answer
     messages = [item for item in response["output"] if item["type"] == "message"]
     if any(item.get("status", "completed") != "completed" for item in messages):
         return "protocol_error", answer

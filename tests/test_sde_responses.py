@@ -327,8 +327,8 @@ def test_incomplete_responses_keep_reason_and_partial_output(reason, status):
     "change,status",
     [
         ("model", "model_mismatch"),
-        ("effort", "protocol_error"),
-        ("no_effort", "protocol_error"),
+        ("effort", "effort_mismatch"),
+        ("no_effort", "effort_mismatch"),
         ("refusal", "refusal"),
         ("tool", "protocol_error"),
         ("empty", "empty"),
@@ -641,7 +641,7 @@ def test_malformed_lifecycle_cannot_overwrite_validated_control_fields(change):
     assert classify(parse_stream(body), "gpt-6-astra", "max")[0] == "protocol_error"
 
 
-def test_effort_mismatch_is_recorded_and_only_bounded_technical_retries_apply(setup):
+def test_effort_mismatch_is_recorded_and_terminal(setup):
     model, session = setup(
         [
             FakeResponse(body=stream(events(response(effort="high"))).encode()),
@@ -649,10 +649,10 @@ def test_effort_mismatch_is_recorded_and_only_bounded_technical_retries_apply(se
         ]
     )
     output = model.generate_until([request(model)])[0]
-    assert output.metadata["status"] == "ok"
-    assert len(session.payloads) == 2
+    assert output.metadata["status"] == "effort_mismatch"
+    assert output.text == ""
+    assert len(session.payloads) == 1
     assert record(output)["attempts"][0]["response"]["reasoning"]["effort"] == "high"
-    assert record(output)["attempts"][0]["status"] == "protocol_error"
 
 
 NATIVE_ITEMS: list[dict[str, Any]] = [
