@@ -531,10 +531,8 @@ def test_command_enables_native_tools_without_turn_limit(model_setup, tmp_path):
     assert "--max-turns" not in cmd and "--fallback-model" not in cmd
     assert "--restricted" not in cmd and "--mcp-config" not in cmd
     assert cmd[cmd.index("--setting-sources") + 1] == ""
-    assert (
-        model.create_payload(question(model, kwargs={"max_tokens": 500}))["max_tokens"]
-        == 500
-    )
+    with pytest.raises(ValueError, match="differs from max_tokens=128000"):
+        model.create_payload(question(model, kwargs={"max_tokens": 500}))
 
 
 def test_fewshot_and_system_contents_are_preserved(model_setup):

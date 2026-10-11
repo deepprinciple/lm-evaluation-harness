@@ -157,8 +157,14 @@ class SDEChatCompletion(LM):
         max_tokens = int(
             kwargs.get("max_tokens", kwargs.get("max_gen_toks", self.max_tokens))
         )
-        if max_tokens < 1:
-            raise ValueError("max_tokens must be positive")
+        # A task YAML budget (e.g. 4096) silently overriding the experiment budget
+        # would truncate reasoning models; require one budget for every task.
+        if max_tokens != self.max_tokens:
+            raise ValueError(
+                f"Task generation budget {max_tokens} differs from "
+                f"max_tokens={self.max_tokens}; pass --gen_kwargs "
+                f"max_tokens={self.max_tokens}"
+            )
         return messages, max_tokens
 
     def create_payload(self, request: Instance) -> dict[str, Any]:

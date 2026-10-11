@@ -10,11 +10,12 @@ a Codex CLI agent with API-key and explicit ChatGPT-subscription profiles.
 
 ## Configuration
 
-The adapter requires `model`, `record_dir` and an explicit `max_tokens` fallback.
-The token budget is not inferred from the model name. It uses the standard harness
-precedence: task generation kwargs, including global `--gen_kwargs` overrides,
-then the model fallback. Set global `max_tokens` to prevent task YAML budgets such
-as 4096 from overriding the intended experiment budget.
+The adapter requires `model`, `record_dir` and an explicit `max_tokens` budget.
+The token budget is not inferred from the model name. The effective task budget
+(task generation kwargs, including global `--gen_kwargs` overrides) must equal the
+model `max_tokens`; otherwise the batch is rejected before any request. Pass the
+same value as `--gen_kwargs max_tokens=N` so task YAML budgets such as 4096
+cannot silently truncate the intended experiment budget.
 
 The default profile sends `reasoning_effort=max`, `thinking.type=enabled` and
 `stream=false`. It omits temperature, seed and stop, including those inherited from
@@ -166,7 +167,7 @@ lm_eval --model sde-messages \
 ```
 
 128000 is an explicit example budget, not an inferred or verified provider maximum.
-The harness override precedence above applies here too.
+The single-budget check above applies here too.
 
 Each attempt writes a redacted `.attemptNN.sse` sidecar beside its JSON record.
 Complete lines are flushed while the request is running; the final partial line
@@ -321,7 +322,7 @@ Scientific correctness never selects a retry.
 Defaults: max effort, four concurrent questions, 3600 seconds per started question,
 three total attempts with 2/4-second technical retry backoff. No search-count or
 turn-count limit and no whole-question token cap are imposed. `max_tokens` is a
-per-response budget; task/CLI generation kwargs retain their existing precedence.
+per-response budget; task/CLI generation kwargs must match it, as above.
 Started attempts, helpers, tools and backoff share the question deadline. The local
 proxy transparently retries the same pre-response failures as the API adapters
 (connection errors and non-quota 429/503/529) before forwarding anything to the

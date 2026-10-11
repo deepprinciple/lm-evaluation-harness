@@ -431,7 +431,7 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
         {"role": "user", "content": "Q2"},
     ]
     kwargs = {
-        "max_tokens": 64000,
+        "max_tokens": 128000,
         "temperature": 0,
         "do_sample": False,
         "until": ["Q:"],
@@ -439,7 +439,7 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
     payload = model.create_payload(request(model, messages, kwargs=kwargs))
     assert payload == {
         "model": "claude-opus-5-5",
-        "max_tokens": 64000,
+        "max_tokens": 128000,
         "messages": messages[2:],
         "system": [
             {"type": "text", "text": "system A"},
@@ -587,7 +587,7 @@ def test_original_harness_scores_text_and_logs_execution_metadata(setup):
             "test_split": "test",
             "doc_to_text": "question",
             "doc_to_target": "answer",
-            "generation_kwargs": {"temperature": 0, "max_gen_toks": 4096},
+            "generation_kwargs": {"temperature": 0, "max_gen_toks": 128000},
             "filter_list": [
                 {
                     "name": "xml",
@@ -614,7 +614,7 @@ def test_original_harness_scores_text_and_logs_execution_metadata(setup):
     )
     assert evaluated["results"]["toy_messages"]["exact_match,xml"] == 1.0
     assert len(session.payloads) == 10
-    assert all(payload["max_tokens"] == 4096 for payload in session.payloads)
+    assert all(payload["max_tokens"] == 128000 for payload in session.payloads)
     assert all(
         sample["response_metadata"][0][0]["status"] == "ok"
         for sample in evaluated["samples"]["toy_messages"]

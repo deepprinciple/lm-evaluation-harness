@@ -835,13 +835,13 @@ def test_prompt_and_effective_command(model, tmp_path):
                 {"role": "user", "content": "verbatim question"},
             ]
         ),
-        {"max_tokens": 555},
+        {"max_tokens": 128000},
     )
     body = m.create_payload(r)
-    assert body["prompt"] == "verbatim question" and body["max_tokens"] == 555
+    assert body["prompt"] == "verbatim question" and body["max_tokens"] == 128000
     assert body["system_append"].endswith("extra instruction")
     proxy = ResponsesProxy(
-        None, "http://127.0.0.1:1", "test-model", "max", 555, "fake", tmp_path, []
+        None, "http://127.0.0.1:1", "test-model", "max", 128000, "fake", tmp_path, []
     )
     proxy.url = "http://127.0.0.1:2"
     cmd = m.command(

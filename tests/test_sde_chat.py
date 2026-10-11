@@ -151,13 +151,13 @@ def test_classification(finish, text, status):
 def test_payload_respects_harness_overrides_without_forwarding_sampling_fields(setup):
     model, _ = setup([])
     kwargs = {
-        "max_tokens": 128000,
+        "max_tokens": 393216,
         "until": ["Q:"],
         "temperature": 0,
         "do_sample": False,
     }
     payload = model.create_payload(request(model, kwargs=kwargs))
-    assert payload["max_tokens"] == 128000
+    assert payload["max_tokens"] == 393216
     assert payload["reasoning_effort"] == "max"
     assert payload["thinking"] == {"type": "enabled"}
     assert (
@@ -473,3 +473,11 @@ def test_changing_concurrency_resumes_existing_records(setup):
     again = resumed.generate_until([request(resumed)])[0]
     assert again.metadata["record_path"] == first.metadata["record_path"]
     assert again.text == first.text and resumed_session.payloads == []
+
+
+@pytest.mark.parametrize("kwargs", [{"max_tokens": 4096}, {"max_gen_toks": 4096}])
+def test_task_budget_must_match_the_experiment_budget(setup, kwargs):
+    model, session = setup([])
+    with pytest.raises(ValueError, match="--gen_kwargs max_tokens=393216"):
+        model.generate_until([request(model, kwargs=kwargs)])
+    assert session.payloads == []

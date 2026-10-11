@@ -397,7 +397,7 @@ def test_payload_maps_budget_and_preserves_system_and_fewshot_messages(setup):
         {"role": "user", "content": "question"},
     ]
     kwargs = {
-        "max_tokens": 256000,
+        "max_tokens": 128000,
         "temperature": 0,
         "until": ["Q:"],
         "do_sample": False,
@@ -407,10 +407,10 @@ def test_payload_maps_budget_and_preserves_system_and_fewshot_messages(setup):
         "model": "gpt-6-astra",
         "input": messages,
         "reasoning": {"effort": "max"},
-        "max_output_tokens": 256000,
+        "max_output_tokens": 128000,
         "stream": True,
     }
-    assert kwargs["max_tokens"] == 256000
+    assert kwargs["max_tokens"] == 128000
     assert model.config["api_format"] == "responses"
     assert (
         not {"temperature", "seed", "stop", "tools", "max_tokens", "thinking"}
@@ -578,7 +578,7 @@ def test_harness_filters_only_answer_text_and_preserves_metadata(setup):
             "test_split": "test",
             "doc_to_text": "question",
             "doc_to_target": "answer",
-            "generation_kwargs": {"temperature": 0, "max_gen_toks": 4096},
+            "generation_kwargs": {"temperature": 0, "max_gen_toks": 128000},
             "filter_list": [
                 {
                     "name": "xml",
@@ -605,7 +605,7 @@ def test_harness_filters_only_answer_text_and_preserves_metadata(setup):
     )
     assert evaluated["results"]["toy_responses"]["exact_match,xml"] == 1.0
     assert len(session.payloads) == 10
-    assert all(payload["max_output_tokens"] == 4096 for payload in session.payloads)
+    assert all(payload["max_output_tokens"] == 128000 for payload in session.payloads)
     assert all(
         sample["response_metadata"][0][0]["returned_effort"] == "max"
         for sample in evaluated["samples"]["toy_responses"]
