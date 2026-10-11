@@ -704,6 +704,22 @@ def test_final_api_answer_is_attributed_to_root_not_last_child():
     assert cx.final_api_call(calls, "parent", "child answer")[0] is None
 
 
+def test_cli_cwd_matches_temporary_workspace(model, tmp_path):
+    m = model()
+    home = tmp_path / "temporary-home"
+    work = home / "work"
+    work.mkdir(parents=True)
+    records = tmp_path / "retained-results"
+    records.mkdir()
+    proxy = ResponsesProxy(
+        None, "http://127.0.0.1:1", "test-model", "max", 128000, "fake", records, []
+    )
+    proxy.url = "http://127.0.0.1:2"
+    command = m.command(records, "prompt", proxy, home)
+    assert Path(command[command.index("-C") + 1]) == work
+    assert Path(command[command.index("-C") + 1]).is_dir()
+
+
 def test_flash_uses_provider_native_search_bridge_without_external_search_keys(
     model, tmp_path, monkeypatch
 ):

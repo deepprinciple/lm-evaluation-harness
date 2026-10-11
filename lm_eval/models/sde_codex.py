@@ -443,7 +443,7 @@ class SDECodex(SDEChatCompletion):
             self.model,
             "--dangerously-bypass-approvals-and-sandbox",
             "-C",
-            str(directory / "work"),
+            str(home / "work"),
             "-o",
             str(directory / "answer.txt"),
         ]
