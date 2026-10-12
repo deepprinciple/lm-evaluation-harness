@@ -262,6 +262,7 @@ class SDEMessages(SDEChatCompletion):
             "model": self.model,
             "messages": messages,
             "max_tokens": max_tokens,
+            "temperature": 1.0,
             "output_config": {"effort": self.config["effort"]},
             "stream": True,
         }

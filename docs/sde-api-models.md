@@ -23,6 +23,17 @@ including those inherited from YAML. Any other generation kwarg, including `seed
 is rejected rather than silently forwarded.
 `reasoning_effort` and `thinking` are model arguments.
 
+Sampling settings (2026-10-12): use the top-level harness flag `--seed 1` to
+set Python, NumPy, Torch and few-shot sampling seeds. This does not send an API
+`seed` or fix service-side sampling; these SDE profiles do not send an unverified
+API seed. Independent repeats still make separate requests.
+
+The thinking-enabled DeepSeek profile omits temperature because it has no effect
+in thinking mode. The Opus Messages profile explicitly sends `temperature=1.0`,
+the accepted thinking-mode default, even if task YAML supplies another value.
+The Astra reasoning profile omits temperature. These are distinct API constraints,
+not a claim that all models share the same effective sampling behavior.
+
 The defaults are four concurrent questions, a 3600-second question deadline and
 at most three total attempts. The deadline starts when a worker is available and
 includes request time and backoff. Resuming an interrupted question opens a fresh
@@ -153,8 +164,10 @@ The required arguments remain `model`, `max_tokens` and `record_dir`. Defaults:
 `anthropic_version=2023-06-01`, four workers, 3600 seconds per question and three
 attempts. Override the endpoint and credential environment name for a relay.
 
-The Messages profile sends `output_config.effort`, `max_tokens` and `stream=true`.
-It does not forward DeepSeek thinking fields, temperature, seed, stop or tools.
+The Messages profile sends `output_config.effort`, `max_tokens`,
+`temperature=1.0` and `stream=true`. It does not forward DeepSeek thinking fields,
+task temperature, seed, stop or tools. The fixed temperature is recorded in each
+actual payload and is not a configurable sampling control for this profile.
 Leading system messages become top-level text blocks; user/assistant few-shot
 messages retain their contents. A system message appearing after conversation
 has begun is rejected. Requested effort is recorded, but an endpoint accepting a

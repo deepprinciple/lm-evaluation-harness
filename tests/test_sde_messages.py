@@ -440,6 +440,7 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
     assert payload == {
         "model": "claude-opus-5-5",
         "max_tokens": 128000,
+        "temperature": 1.0,
         "messages": messages[2:],
         "system": [
             {"type": "text", "text": "system A"},
@@ -451,10 +452,7 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
     }
     assert model.config["api_format"] == "messages"
     assert model.config["thinking_display"] == "summarized"
-    assert (
-        not {"reasoning_effort", "temperature", "seed", "stop", "tools"}
-        & payload.keys()
-    )
+    assert not {"reasoning_effort", "seed", "stop", "tools"} & payload.keys()
     with pytest.raises(ValueError, match="leading"):
         model.create_payload(
             request(
