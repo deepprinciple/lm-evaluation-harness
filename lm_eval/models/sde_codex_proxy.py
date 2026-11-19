@@ -12,6 +12,7 @@ from aiohttp import web
 from lm_eval.models.sde_cc_proxy import MessagesProxy, redact
 from lm_eval.models.sde_chat import save_record
 from lm_eval.models.sde_responses import parse_stream, validate_native_item
+from lm_eval.models.sde_source_guard import NOTICE, filter_tool_returns, source_rules
 
 
 SUBSCRIPTION_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
@@ -288,6 +289,18 @@ class ResponsesProxy(MessagesProxy):
                         return web.json_response(
                             {"error": "Invalid search result"}, status=502
                         )
+                    rules = source_rules(result)
+                    if rules:
+                        call.update(status="source_blocked", source_rules=rules)
+                        return web.json_response(
+                            {
+                                "error": {
+                                    "type": "benchmark_source_blocked",
+                                    "message": NOTICE,
+                                }
+                            },
+                            status=422,
+                        )
                     call["status"] = "ok"
                 return web.Response(
                     body=wire,
@@ -471,6 +484,9 @@ class ResponsesProxy(MessagesProxy):
                 self.max_tokens,
                 hosted_web_search=self.hosted_web_search,
             )
+            call["payload"], filters = filter_tool_returns(call["payload"])
+            call["source_filters"] = filters
+            call["source_filter_count"] = len(filters)
             if call["payload"].get("tools") != incoming.get("tools"):
                 call["normalizations"].append("native_hosted_web_search_tool")
         except ValueError as exc:

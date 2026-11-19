@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 import aiohttp
 import pytest
@@ -9,7 +10,7 @@ from lm_eval.api.instance import Instance
 from lm_eval.api.model import CacheHook
 from lm_eval.api.task import ConfigurableTask
 from lm_eval.evaluator import evaluate
-from lm_eval.models.sde_chat import SDEChatCompletion, classify
+from lm_eval.models.sde_chat import SDEChatCompletion, classify, digest
 
 
 def response(text="<answer>A</answer>", finish="stop"):
@@ -480,4 +481,187 @@ def test_task_budget_must_match_the_experiment_budget(setup, kwargs):
     model, session = setup([])
     with pytest.raises(ValueError, match="--gen_kwargs max_tokens=393216"):
         model.generate_until([request(model, kwargs=kwargs)])
+    assert session.payloads == []
+
+
+def test_explicit_resume_reuses_success_with_new_runtime_budgets(setup):
+    model, _ = setup([FakeResponse(body=json.dumps(response("wrong answer")).encode())])
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    before = path.read_bytes()
+    resumed, session = setup([], resume=True, timeout=120, max_attempts=1)
+    again = resumed.generate_until([request(resumed)])[0]
+    assert again.text == "wrong answer"
+    assert again.metadata["record_path"] == str(path)
+    assert path.read_bytes() == before
+    assert session.payloads == []
+
+
+def test_explicit_resume_appends_attempts_with_a_fresh_budget(setup):
+    model, _ = setup([FakeResponse(status=524, body=b"old timeout")], max_attempts=1)
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    old = json.loads(path.read_text())
+    resumed, session = setup(
+        [FakeResponse(status=524), FakeResponse()],
+        resume=True,
+        timeout=120,
+        max_attempts=2,
+    )
+    again = resumed.generate_until([request(resumed)])[0]
+    new = json.loads(path.read_text())
+    assert again.metadata["record_path"] == str(path)
+    assert again.metadata["status"] == "ok"
+    assert again.metadata["budget_attempts"] == 3
+    assert new["attempts"][:1] == old["attempts"]
+    assert [a["attempt"] for a in new["attempts"]] == [1, 2, 3]
+    assert new["deadline_windows"][-1]["attempt_start"] == 1
+    assert new["deadline_windows"][-1]["max_attempts"] == 2
+    assert new["deadline_windows"][-1]["timeout"] == 120
+    assert len(session.payloads) == 2
+
+
+def test_finished_failure_without_explicit_resume_is_not_retried(setup):
+    model, _ = setup([FakeResponse(status=524)], max_attempts=1)
+    first = model.generate_until([request(model)])[0]
+    reopened, session = setup([], timeout=120, max_attempts=2)
+    again = reopened.generate_until([request(reopened)])[0]
+    assert again.metadata["record_path"] == first.metadata["record_path"]
+    assert again.metadata["status"] == "transport_failed"
+    assert session.payloads == []
+
+
+@pytest.mark.parametrize("finish", ["length", "content_filter"])
+def test_explicit_resume_keeps_refusal_and_truncation(setup, finish):
+    model, _ = setup([FakeResponse(body=json.dumps(response("text", finish)).encode())])
+    first = model.generate_until([request(model)])[0]
+    reopened, session = setup([], resume=True)
+    again = reopened.generate_until([request(reopened)])[0]
+    assert again == first
+    assert session.payloads == []
+
+
+def test_explicit_resume_reopens_a_question_timeout(setup):
+    model, _ = setup([FakeResponse(status=524)], timeout=1)
+    first = model.generate_until([request(model)])[0]
+    assert first.metadata["status"] == "question_timeout"
+    reopened, session = setup([FakeResponse()], resume=True, timeout=60)
+    again = reopened.generate_until([request(reopened)])[0]
+    assert again.metadata["status"] == "ok"
+    assert again.metadata["record_path"] == first.metadata["record_path"]
+    assert len(session.payloads) == 1
+
+
+def test_explicit_resume_preserves_interrupted_attempt_and_downtime_is_free(setup):
+    model, _ = setup([FakeResponse(status=524)], max_attempts=1)
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    old = json.loads(path.read_text())
+    old["finished"] = False
+    old["status"] = "running"
+    old["attempts"][-1]["status"] = "running"
+    old["started_at"] -= 86400
+    old["deadline_windows"][0]["started_at"] -= 86400
+    path.write_text(json.dumps(old))
+    reopened, _ = setup([FakeResponse()], resume=True, max_attempts=1)
+    again = reopened.generate_until([request(reopened)])[0]
+    record = json.loads(path.read_text())
+    assert again.metadata["status"] == "ok"
+    assert record["attempts"][0]["error"] == "ProcessInterrupted"
+    assert again.metadata["budget_attempts"] == 2
+    assert again.metadata["elapsed_seconds"] < 60
+
+
+def test_explicit_resume_reuses_finished_answer_after_last_checkpoint(setup):
+    model, _ = setup([FakeResponse()])
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    record = json.loads(path.read_text())
+    record["finished"] = False
+    path.write_text(json.dumps(record))
+    reopened, session = setup([], resume=True)
+    again = reopened.generate_until([request(reopened)])[0]
+    assert again.text == first.text
+    assert session.payloads == []
+    assert json.loads(path.read_text())["finished"]
+
+
+@pytest.mark.parametrize(
+    "setting", ["reasoning_effort", "max_tokens", "adapter_sha256"]
+)
+def test_explicit_resume_rejects_incompatible_experiment_before_network(setup, setting):
+    model, _ = setup([FakeResponse()])
+    model.generate_until([request(model)])
+    reopened, session = setup([], resume=True)
+    reopened.config[setting] = "changed"
+    with pytest.raises(ValueError, match="Resume.*mismatch"):
+        reopened.generate_until([request(reopened)])
+    assert session.payloads == []
+
+
+def test_explicit_resume_preserves_independent_repeat_indices(setup):
+    model, _ = setup(
+        [FakeResponse(status=524), FakeResponse()], max_attempts=1, num_concurrent=1
+    )
+    req = request(model)
+    before = model.generate_until([req, req])
+    reopened, session = setup([FakeResponse()], resume=True, num_concurrent=1)
+    req = request(reopened)
+    after = reopened.generate_until([req, req])
+    assert [out.metadata["repeat_index"] for out in after] == [0, 1]
+    assert [out.metadata["status"] for out in after] == ["ok", "ok"]
+    assert after[1].text == before[1].text
+    assert len(session.payloads) == 1
+
+
+def test_resume_reads_pre_change_records_without_renaming_them(setup):
+    model, _ = setup([FakeResponse()])
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    record = json.loads(path.read_text())
+    record["identity"]["config"].update(
+        timeout=3600,
+        max_attempts=3,
+        adapter_sha256="ef22aedfa4e9f6233429740cfc74f06724c6aedd6b9824816315ce4d22a14221",
+    )
+    old_path = path.parent / f"{digest(record['identity'])}.json"
+    path.unlink()
+    old_path.write_text(json.dumps(record))
+    before = old_path.read_bytes()
+    reopened, session = setup([], resume=True, timeout=120, max_attempts=1)
+    again = reopened.generate_until([request(reopened)])[0]
+    assert again.metadata["record_path"] == str(old_path)
+    assert old_path.read_bytes() == before
+    assert session.payloads == []
+
+
+def test_explicit_resume_after_credentials_are_repaired(setup):
+    model, _ = setup([FakeResponse(status=401)], max_attempts=1)
+    with pytest.raises(PermissionError):
+        model.generate_until([request(model)])
+    reopened, session = setup([FakeResponse()], resume=True)
+    again = reopened.generate_until([request(reopened)])[0]
+    assert again.metadata["status"] == "ok"
+    assert len(session.payloads) == 1
+
+
+def test_resume_rejects_duplicate_question_records_before_network(setup):
+    model, _ = setup([FakeResponse()])
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    path.with_name("f" * 64 + ".json").write_bytes(path.read_bytes())
+    reopened, session = setup([], resume=True)
+    with pytest.raises(ValueError, match="multiple records"):
+        reopened.generate_until([request(reopened)])
+    assert session.payloads == []
+
+
+def test_resume_validates_all_saved_questions_before_starting_pending_calls(setup):
+    model, _ = setup([FakeResponse()])
+    model.generate_until([request(model, doc_id=1)])
+    reopened, session = setup([], resume=True)
+    changed = request(reopened, doc_id=1)
+    changed.doc["new_label"] = "changed dataset"
+    with pytest.raises(ValueError, match="Resume.*mismatch"):
+        reopened.generate_until([request(reopened, doc_id=2), changed])
     assert session.payloads == []

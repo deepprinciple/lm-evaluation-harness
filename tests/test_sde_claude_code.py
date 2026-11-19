@@ -554,6 +554,12 @@ def test_fewshot_and_system_contents_are_preserved(model_setup):
     assert payload["input_messages"] == messages
     assert json.loads(payload["prompt"].split("\n", 1)[1]) == messages[1:]
     assert payload["system_append"].endswith("rule")
+    assert (
+        "all tool processes and threads share a total budget of "
+        "8 vCPUs and 16 GiB of RAM."
+    ) in payload["system_append"]
+    cmd = model.command(payload["system_append"])
+    assert cmd[cmd.index("--append-system-prompt") + 1] == payload["system_append"]
     req.arguments = (model.apply_chat_template(messages[1:] + [messages[0]]), {})
     with pytest.raises(ValueError, match="precede"):
         model.create_payload(req)
@@ -612,6 +618,44 @@ def test_technical_retry_repeat_and_resume_records(model_setup, monkeypatch):
     assert all(r.text == "A" for r in result)
     assert model.generate_until([question(model), question(model)]) == result
     assert len(calls) == 4
+
+
+def test_explicit_resume_preserves_agent_attempt_directories(model_setup, monkeypatch):
+    calls = []
+
+    async def request_once(session, payload, key, attempt):
+        calls.append(attempt["attempt"])
+        directory = Path(attempt["record_path"]).with_suffix(
+            f".attempt{attempt['attempt']:02}.cc"
+        )
+        directory.mkdir()
+        (directory / "trace.jsonl").write_text(f"trace {attempt['attempt']}")
+        attempt.update(
+            status="transport_failed" if len(calls) == 1 else "ok",
+            answer="<answer>A</answer>",
+            response={"usage": {"output_tokens": 7}},
+        )
+
+    first_model = model_setup(max_attempts=1)
+    monkeypatch.setattr(first_model, "request_once", request_once)
+    first = first_model.generate_until([question(first_model)])[0]
+    path = Path(first.metadata["record_path"])
+    before = json.loads(path.read_text())
+    resumed = model_setup(resume=True, timeout=120, max_attempts=1)
+    monkeypatch.setattr(resumed, "request_once", request_once)
+    after = resumed.generate_until([question(resumed)])[0]
+    assert after.metadata["status"] == "ok"
+    assert after.metadata["record_path"] == str(path)
+    assert json.loads(path.read_text())["attempts"][:1] == before["attempts"]
+    assert (
+        path.with_suffix(".attempt01.cc").joinpath("trace.jsonl").read_text()
+        == "trace 1"
+    )
+    assert (
+        path.with_suffix(".attempt02.cc").joinpath("trace.jsonl").read_text()
+        == "trace 2"
+    )
+    assert calls == [1, 2]
 
 
 def test_question_deadline_includes_all_attempts(model_setup, monkeypatch):

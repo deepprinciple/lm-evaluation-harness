@@ -299,12 +299,13 @@ def test_secret_masking_in_every_record_and_returned_result(tmp_path: Path) -> N
     [
         "https://huggingface.co/source",
         "https://github.com/deepprinciple/source",
-        "https://github.com/howiehwong/sde-harness",
         "https://arxiv.org/abs/2512.15567",
         "https://arxiv.org/pdf/2512.15567",
     ],
 )
-def test_native_search_does_not_filter_source_domains(tmp_path: Path, url: str) -> None:
+def test_native_search_preserves_ordinary_source_domains(
+    tmp_path: Path, url: str
+) -> None:
     data = native_response()
     data["content"][0]["content"][0]["url"] = url
     p = proxy(tmp_path, data)

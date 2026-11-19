@@ -209,6 +209,25 @@ def request(model, messages=None, doc_id=0, kwargs=None):
     )
 
 
+def test_resume_preserves_failed_sse_and_uses_a_new_attempt_file(setup):
+    model, _ = setup([FakeResponse(status=524, body=b"old timeout")], max_attempts=1)
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    old = json.loads(path.read_text())
+    old_stream = Path(old["attempts"][0]["body_path"])
+    before = old_stream.read_bytes()
+    resumed, session = setup([FakeResponse()], resume=True, timeout=120, max_attempts=1)
+    again = resumed.generate_until([request(resumed)])[0]
+    record = json.loads(path.read_text())
+    assert again.metadata["status"] == "ok"
+    assert again.metadata["record_path"] == str(path)
+    assert record["attempts"][:1] == old["attempts"]
+    assert old_stream.read_bytes() == before
+    assert Path(record["attempts"][1]["body_path"]).is_file()
+    assert record["attempts"][1]["body_path"] != str(old_stream)
+    assert len(session.payloads) == 1
+
+
 def record(output):
     return json.loads(Path(output.metadata["record_path"]).read_text())
 
@@ -440,7 +459,6 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
     assert payload == {
         "model": "claude-opus-5-5",
         "max_tokens": 128000,
-        "temperature": 1.0,
         "messages": messages[2:],
         "system": [
             {"type": "text", "text": "system A"},
@@ -452,7 +470,10 @@ def test_payload_preserves_messages_and_moves_system_to_top_level(setup):
     }
     assert model.config["api_format"] == "messages"
     assert model.config["thinking_display"] == "summarized"
-    assert not {"reasoning_effort", "seed", "stop", "tools"} & payload.keys()
+    assert (
+        not {"temperature", "reasoning_effort", "seed", "stop", "tools"}
+        & payload.keys()
+    )
     with pytest.raises(ValueError, match="leading"):
         model.create_payload(
             request(

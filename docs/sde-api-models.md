@@ -28,11 +28,11 @@ set Python, NumPy, Torch and few-shot sampling seeds. This does not send an API
 `seed` or fix service-side sampling; these SDE profiles do not send an unverified
 API seed. Independent repeats still make separate requests.
 
-The thinking-enabled DeepSeek profile omits temperature because it has no effect
-in thinking mode. The Opus Messages profile explicitly sends `temperature=1.0`,
-the accepted thinking-mode default, even if task YAML supplies another value.
-The Astra reasoning profile omits temperature. These are distinct API constraints,
-not a claim that all models share the same effective sampling behavior.
+All no-tools profiles omit temperature according to official model rules. It
+has no effect in DeepSeek thinking mode; Opus uses the only accepted default
+value, `1.0`; Astra does not support it with non-none reasoning effort. Task YAML
+temperature is not forwarded. These are distinct API constraints, not a claim
+that all models share the same effective sampling behavior.
 
 The defaults are four concurrent questions, a 3600-second question deadline and
 at most three total attempts. The deadline starts when a worker is available and
@@ -65,10 +65,26 @@ Records retain full HTTP bodies, parsed responses, reasoning text if returned by
 the provider, usage and partial bodies from interrupted reads. Headers and API keys
 are not stored; an echoed key is redacted from the body.
 
-Completed records can be reused only for matching identities. Repeats have separate
-records. `num_concurrent` only schedules work and is excluded from the identity,
-so a run can resume with different concurrency; the timeout, attempt count and
-every other setting remain part of it. An interrupted in-flight attempt consumes one attempt when resuming.
+Completed records can be reused only for matching experiment identities. Repeats
+have separate records. `num_concurrent`, `timeout` and `max_attempts` are runtime
+settings, excluded from the identity and saved per execution window instead.
+Model, endpoint, effort, output-token budget, question and tools remain part of
+the identity. Explicit `resume=true` validates saved records before network calls,
+including the immediately preceding compatible implementation via fixed checksum
+aliases. Unknown versions and duplicate records for one question/draw are rejected.
+Normal answers are reused even if scientifically wrong. Technical failures and
+interrupted attempts are reopened with a fresh timeout and attempt budget;
+refusal, truncation, context limits and model/effort mismatch are not reopened.
+Without explicit resume, a finished failed record is reused without new calls.
+Ordinary interrupted-run recovery continues its previous attempt budget.
+An interrupted attempt remains in the cumulative attempt count.
+
+`deadline_windows` records each window's runtime configuration, `timeout`,
+`max_attempts`, `attempt_start` and active `elapsed_seconds`. Raw attempts append
+with monotonically increasing indices; existing JSON, SSE and agent attempt
+directories are not renamed or deleted. Waiting while the process is stopped
+does not contribute to the new implementation's cumulative active duration.
+Legacy records retain their previously recorded duration.
 Use a different `record_dir` for a new independent experiment. Concurrent processes
 cannot use the same directory; file locking requires macOS or Linux.
 
@@ -81,9 +97,23 @@ the question deadline. They are kept as attempts marked `budget_exempt`;
 `response_metadata.budget_attempts` counts the attempts that used the budget.
 500/502/504/524, quota errors and mid-stream failures still consume an attempt. A normal answer, a structured refusal or
 length truncation does not trigger retry. Scientific scores are never consulted.
-401/403 is recorded and stops the batch. After fixing credentials, use a new
-record directory; the saved authentication failure is not silently reused as an
-answer. `--use_cache` is rejected to protect independent sampling.
+401/403 is recorded and stops the batch. After fixing credentials, explicitly
+resume the same record directory; if authentication still fails the batch stops
+again. The failed attempt is retained, never silently used as an answer.
+`--use_cache` is rejected to protect independent sampling.
+
+The one-command wrapper exposes this as `--resume`:
+
+```bash
+SDE_TIMEOUT=7200 SDE_ATTEMPTS=3 \
+  bash scripts/run_sde_question.sh --group flash --output results/flash --resume
+```
+
+This gives unfinished/technically failed draws a new bounded execution window;
+it does not create independent repeats or retry ordinary wrong answers. The
+completed-only metrics and completion/status counts below are the relevant view
+while technical failures remain. The legacy all-document metrics are retained
+for compatibility and must not be described as scientific-error counts.
 
 Sample logs contain status, repeat index, selected-attempt usage, all available
 attempt usage and the raw record path under `response_metadata`. Only `ok` text is
@@ -164,10 +194,10 @@ The required arguments remain `model`, `max_tokens` and `record_dir`. Defaults:
 `anthropic_version=2023-06-01`, four workers, 3600 seconds per question and three
 attempts. Override the endpoint and credential environment name for a relay.
 
-The Messages profile sends `output_config.effort`, `max_tokens`,
-`temperature=1.0` and `stream=true`. It does not forward DeepSeek thinking fields,
-task temperature, seed, stop or tools. The fixed temperature is recorded in each
-actual payload and is not a configurable sampling control for this profile.
+The Messages profile sends `output_config.effort`, `max_tokens` and
+`stream=true`. It omits temperature, using the official default `1.0`, and does
+not forward DeepSeek thinking fields, task temperature, seed, stop or tools.
+Temperature is not a configurable sampling control for this profile.
 Leading system messages become top-level text blocks; user/assistant few-shot
 messages retain their contents. A system message appearing after conversation
 has begun is rejected. Requested effort is recorded, but an endpoint accepting a
@@ -255,7 +285,7 @@ claim that 128000 is the provider's maximum:
 
 ```bash
 lm_eval --model sde-responses \
-  --model_args model=gpt-6-astra,max_tokens=128000,record_dir=results/astra_max/raw,base_url=https://mira.grecharge.ai/v1/responses,api_key_env=NEW_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3 \
+  --model_args model=gpt-6-astra,max_tokens=128000,record_dir=results/astra_max/raw,base_url=https://mira.grecharge.ai/v1/responses,api_key_env=OPENAI_API_KEY,effort=max,num_concurrent=4,timeout=3600,max_attempts=3 \
   --gen_kwargs max_tokens=128000 \
   --tasks science_chem_quantum_software --limit 1 \
   --apply_chat_template --log_samples --output_path results/astra_max

@@ -635,6 +635,44 @@ def test_api_profile_does_not_read_personal_auth(model, monkeypatch):
     assert m.get_api_key() == "private-DEEPSEEK_API_KEY"
 
 
+def test_explicit_resume_preserves_agent_attempt_directories(model, monkeypatch):
+    calls = []
+
+    async def request_once(session, payload, key, attempt):
+        calls.append(attempt["attempt"])
+        directory = Path(attempt["record_path"]).with_suffix(
+            f".attempt{attempt['attempt']:02}.codex"
+        )
+        directory.mkdir()
+        (directory / "trace.jsonl").write_text(f"trace {attempt['attempt']}")
+        attempt.update(
+            status="transport_failed" if len(calls) == 1 else "ok",
+            answer="<answer>A</answer>",
+            response={"usage": {"output_tokens": 7}},
+        )
+
+    first_model = model(max_attempts=1)
+    monkeypatch.setattr(first_model, "request_once", request_once)
+    first = first_model.generate_until([request()])[0]
+    path = Path(first.metadata["record_path"])
+    before = json.loads(path.read_text())
+    resumed = model(resume=True, timeout=120, max_attempts=1)
+    monkeypatch.setattr(resumed, "request_once", request_once)
+    after = resumed.generate_until([request()])[0]
+    assert after.metadata["status"] == "ok"
+    assert after.metadata["record_path"] == str(path)
+    assert json.loads(path.read_text())["attempts"][:1] == before["attempts"]
+    assert (
+        path.with_suffix(".attempt01.codex").joinpath("trace.jsonl").read_text()
+        == "trace 1"
+    )
+    assert (
+        path.with_suffix(".attempt02.codex").joinpath("trace.jsonl").read_text()
+        == "trace 2"
+    )
+    assert calls == [1, 2]
+
+
 def test_native_tools_do_not_require_third_party_search_keys(model, monkeypatch):
     monkeypatch.delenv("SERPAPI_API_KEY")
     monkeypatch.delenv("JINA_API_KEY")
@@ -825,6 +863,30 @@ def test_code_mode_only_catalog_preserves_native_tools_and_instructions(
     assert m.config["catalog_normalizations"] == []
 
 
+def test_native_model_messages_are_passed_to_cli_without_legacy_override(
+    model, tmp_path
+):
+    path = tmp_path / "catalog.json"
+    original = json.loads(path.read_text())
+    entry = original["models"][0]
+    entry.pop("base_instructions")
+    entry["model_messages"] = {
+        "instructions_template": "Synthetic native template",
+        "persistent_instructions": "Synthetic optional mode",
+    }
+    path.write_text(json.dumps(original))
+    m = model()
+    proxy = ResponsesProxy(
+        None, "http://127.0.0.1:1", "test-model", "max", 128000, "fake", tmp_path, []
+    )
+    proxy.url = "http://127.0.0.1:2"
+    m.command(tmp_path, "evaluation instructions", proxy, tmp_path)
+    saved = json.loads(path.read_text())
+    assert saved == original
+    assert "base_instructions" not in m.catalog["models"][0]
+    assert m.catalog["models"][0]["model_messages"] == entry["model_messages"]
+
+
 def test_prompt_and_effective_command(model, tmp_path):
     m = model()
     r = request()
@@ -859,6 +921,12 @@ def test_prompt_and_effective_command(model, tmp_path):
         for i, arg in enumerate(cmd[:-1])
         if arg == "-c"
     }
+    instructions = json.loads(cfg["developer_instructions"])
+    assert instructions == body["system_append"]
+    assert (
+        "all tool processes and threads share a total budget of "
+        "8 vCPUs and 16 GiB of RAM."
+    ) in instructions
     assert not any("mcp_servers.sde_tools" in key for key in cfg)
     assert cfg["web_search"] == '"live"'
     assert cfg["project_doc_max_bytes"] == "0"
@@ -945,6 +1013,66 @@ def test_quota_exhaustion_saved_and_batch_stopped(model, monkeypatch):
     with pytest.raises(RuntimeError):
         m.generate_until([request()])
     assert len(count) == 1
+
+
+def test_explicit_resume_reopens_quota_and_keeps_normal_answer(model, monkeypatch):
+    m = model(num_concurrent=1, max_attempts=1)
+    install_response(m, monkeypatch, [("ok", "saved answer"), ("quota_exhausted", "")])
+    requests = [request(doc=0), request(doc=1)]
+    with pytest.raises(RuntimeError, match="quota exhausted"):
+        m.generate_until(requests)
+    records = {
+        path: json.loads(path.read_text()) for path in m.record_dir.glob("*.json")
+    }
+    normal_path = next(
+        path for path, record in records.items() if record["status"] == "ok"
+    )
+    quota_path = next(
+        path
+        for path, record in records.items()
+        if record["status"] == "quota_exhausted"
+    )
+    normal_before = normal_path.read_bytes()
+    quota_before = records[quota_path]["attempts"]
+    resumed = model(resume=True, num_concurrent=1, max_attempts=1)
+    calls = install_response(resumed, monkeypatch, [("ok", "new answer")])
+    results = resumed.generate_until(requests)
+    assert [result.text for result in results] == ["saved answer", "new answer"]
+    assert len(calls) == 1
+    assert normal_path.read_bytes() == normal_before
+    repaired = json.loads(quota_path.read_text())
+    assert repaired["attempts"][:-1] == quota_before
+    assert [attempt["status"] for attempt in repaired["attempts"]] == [
+        "quota_exhausted",
+        "ok",
+    ]
+    assert repaired["deadline_windows"][-1]["attempt_start"] == len(quota_before)
+    assert repaired["finished"] is True
+
+
+@pytest.mark.parametrize(
+    "runtime_sha256",
+    [
+        "f9cdac7e3d3c6a65fd503c18a6a1998fbf1816f78bac77da7a83084af291daad",
+        "ef22aedfa4e9f6233429740cfc74f06724c6aedd6b9824816315ce4d22a14221",
+    ],
+)
+def test_resume_keeps_records_from_before_quota_fix(model, monkeypatch, runtime_sha256):
+    m = model()
+    install_response(m, monkeypatch, [("ok", "saved answer")])
+    result = m.generate_until([request()])[0]
+    path = Path(result.metadata["record_path"])
+    record = json.loads(path.read_text())
+    record["identity"]["config"]["runtime_sha256"] = runtime_sha256
+    path.write_text(json.dumps(record))
+    before = path.read_bytes()
+    resumed = model(resume=True)
+    calls = install_response(resumed, monkeypatch, [("ok", "replacement")])
+    again = resumed.generate_until([request()])[0]
+    assert again.text == "saved answer"
+    assert again.metadata["record_path"] == str(path)
+    assert path.read_bytes() == before
+    assert calls == []
 
 
 @pytest.mark.parametrize("code", [401, 403])

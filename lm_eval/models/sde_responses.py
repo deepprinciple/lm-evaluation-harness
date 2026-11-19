@@ -277,6 +277,7 @@ def parse_stream(
     reasoning_deltas: list[dict[str, Any]] = []
     refusal_deltas: list[dict[str, Any]] = []
     tool_events: list[dict[str, Any]] = []
+    metadata_events: list[dict[str, Any]] = []
     tool_references: list[tuple[int, str | None, str]] = []
     counts: Counter[str] = Counter()
     terminal = None
@@ -315,6 +316,15 @@ def parse_stream(
                     raise ValueError("invalid stream error")
                 failure = event
                 break
+            if kind == "response.metadata":
+                if (
+                    not response
+                    or event.get("response_id") != response["id"]
+                    or not isinstance(event.get("metadata"), dict)
+                ):
+                    raise ValueError("invalid response metadata")
+                metadata_events.append(copy.deepcopy(event))
+                continue
             if kind in {
                 "response.created",
                 "response.in_progress",
@@ -503,6 +513,7 @@ def parse_stream(
         "reasoning_deltas": reasoning_deltas,
         "refusal_deltas": refusal_deltas,
         "tool_events": tool_events,
+        "metadata_events": metadata_events,
     }
 
 
@@ -555,6 +566,10 @@ def classify(
 class SDEResponses(SDEChatCompletion):
     """Astra relay profile with the shared SDE lifecycle and SSE recorder."""
 
+    previous_adapter_sha256 = (
+        "cb6b5b70b77acb353188219f1d4687d08ec13ce43f2e329b5962495b45a02da5"
+    )
+
     def __init__(
         self,
         model: str,
@@ -570,6 +585,7 @@ class SDEResponses(SDEChatCompletion):
         batch_size: int = 1,
         max_batch_size: Any = None,
         device: Any = None,
+        resume: bool = False,
     ) -> None:
         if effort not in {"minimal", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported Responses effort")
@@ -591,6 +607,7 @@ class SDEResponses(SDEChatCompletion):
             batch_size=batch_size,
             max_batch_size=max_batch_size,
             device=device,
+            resume=resume,
         )
         self.config.pop("reasoning_effort")
         self.config.pop("thinking")

@@ -23,6 +23,7 @@ from lm_eval.models.sde_claude_code import (
     validate_tool_runtime,
 )
 from lm_eval.models.sde_codex_proxy import ResponsesProxy
+from lm_eval.models.sde_source_guard import POLICY
 from lm_eval.models.sde_stream import stream_sha256
 
 
@@ -221,6 +222,10 @@ def validate_runtime(
 
 @register_model("sde-codex")
 class SDECodex(SDEChatCompletion):
+    previous_adapter_sha256 = (
+        "5ec6f454af6984dcfa84a27c0a1b486fa04fae1dfb90f8ce5ff4b2c2b8b81591"
+    )
+
     def __init__(
         self,
         model: str,
@@ -241,6 +246,7 @@ class SDECodex(SDEChatCompletion):
         batch_size: int = 1,
         max_batch_size: Any = None,
         device: Any = None,
+        resume: bool = False,
         node_bin: str | None = None,
         search_backend: str | None = None,
         reasoning_summary: str = "auto",
@@ -288,6 +294,7 @@ class SDECodex(SDEChatCompletion):
             batch_size=batch_size,
             max_batch_size=max_batch_size,
             device=device,
+            resume=resume,
         )
         if effort not in {"low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported Codex effort")
@@ -334,6 +341,7 @@ class SDECodex(SDEChatCompletion):
             catalog_normalizations=[],
             **runtime,
             tools_policy="all_available",
+            benchmark_source_policy=POLICY,
             search_backend=search_backend,
             reasoning_summary=reasoning_summary,
             read_backend="native_tools",
@@ -353,6 +361,7 @@ class SDECodex(SDEChatCompletion):
             "sde_cc_proxy",
             "sde_responses",
             "sde_deepseek_search",
+            "sde_source_guard",
         ):
             self.config[name + "_sha256"] = hashlib.sha256(
                 Path(__file__).with_name(name + ".py").read_bytes()

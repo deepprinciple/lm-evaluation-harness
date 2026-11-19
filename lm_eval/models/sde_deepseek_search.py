@@ -21,6 +21,8 @@ import aiohttp
 import requests
 from aiohttp import web
 
+from lm_eval.models.sde_source_guard import NOTICE, source_rules
+
 
 ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages"
 MAX_BODY = 32768
@@ -259,6 +261,18 @@ async def forward_search(request: web.Request, proxy: Any) -> web.Response:
         {k: v for k, v in row.items() if k != "encrypted_content"}
         for row in call["results"]
     ]
+    rules = source_rules({k: reply.get(k) for k in ("results", "summary", "citations")})
+    if call["status"] == "ok" and rules:
+        call.update(status="source_blocked", source_rules=rules)
+        _persist_search(proxy, call)
+        reply = {
+            "status": "source_blocked",
+            "error": NOTICE,
+            "results": [],
+            "summary": NOTICE,
+            "citations": [],
+            "usage": call.get("usage", {}),
+        }
     return web.json_response(reply, status=http_status)
 
 

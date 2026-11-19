@@ -66,6 +66,14 @@ class SDEChatCompletion(LM):
     """
 
     sde_recorded_results = True
+    # Explicitly compatible versions with unchanged request/answer protocols.
+    # Remove/change these aliases when the request or answer-selection protocol changes.
+    previous_adapter_sha256 = (
+        "ef22aedfa4e9f6233429740cfc74f06724c6aedd6b9824816315ce4d22a14221"
+    )
+    resume_compatible_sha256 = (
+        "f9cdac7e3d3c6a65fd503c18a6a1998fbf1816f78bac77da7a83084af291daad"
+    )
 
     def __init__(
         self,
@@ -82,6 +90,7 @@ class SDEChatCompletion(LM):
         batch_size: int = 1,
         max_batch_size: Any = None,
         device: Any = None,
+        resume: bool = False,
     ) -> None:
         super().__init__()
         if (
@@ -91,12 +100,15 @@ class SDEChatCompletion(LM):
             or float(timeout) <= 0
             or thinking not in ("enabled", "disabled")
             or int(batch_size) != 1
+            or not isinstance(resume, bool)
         ):
             raise ValueError("Invalid generation budget, thinking mode or batch_size")
         self.validate_auth(api_key_env)
         self.model = model
         self.max_tokens = int(max_tokens)
         self.record_dir = Path(record_dir).resolve()
+        self.resume = resume
+        self._resume_paths: dict[str, Path] = {}
         self.config: dict[str, Any] = {
             "model": model,
             "base_url": base_url,
@@ -255,40 +267,89 @@ class SDEChatCompletion(LM):
         payload: dict[str, Any],
         repeat: int,
     ) -> GenerationResult:
-        identity = {
-            # Concurrency only schedules work; changing it must still resume.
-            "config": {k: v for k, v in self.config.items() if k != "num_concurrent"},
-            "task": request.task_name,
-            "doc_id": request.doc_id,
-            "request_index": request.idx,
-            "doc_sha256": digest(request.doc),
-            "payload": payload,
-            "repeat_index": repeat,
-        }
-        path = self.record_dir / f"{digest(identity)}.json"
+        identity = self.normalize_identity(
+            {
+                "config": self.config,
+                "task": request.task_name,
+                "doc_id": request.doc_id,
+                "request_index": request.idx,
+                "doc_sha256": digest(request.doc),
+                "payload": payload,
+                "repeat_index": repeat,
+            }
+        )
+        path = self._resume_paths.get(
+            digest(identity), self.record_dir / f"{digest(identity)}.json"
+        )
         async with semaphore:
-            window = {"started_at": time.time()}
+            window = {
+                "started_at": time.time(),
+                "timeout": self.config["timeout"],
+                "max_attempts": self.config["max_attempts"],
+                "runtime_config": dict(self.config),
+                "elapsed_seconds": 0.0,
+                "resume": self.resume,
+            }
+            retryable = {
+                "transport_failed",
+                "protocol_error",
+                "empty",
+                "generation_incomplete",
+            }
             if path.exists():
                 record = json.loads(path.read_text())
-                if record["identity"] != identity:
+                if self.normalize_identity(record["identity"]) != identity:
                     raise ValueError("Stored request identity does not match")
+                if self.resume and record["status"] == "ok":
+                    if not record["finished"]:
+                        record["finished"] = True
+                        save_record(path, record)
+                    return self.result(record, path)
+                auth_failed = bool(
+                    record["attempts"]
+                    and record["attempts"][-1].get("http_status") in (401, 403)
+                )
+                reopen = self.resume and (
+                    record["status"]
+                    in retryable
+                    | {
+                        "question_timeout",
+                        "running",
+                        "runner_failed",
+                        "quota_exhausted",
+                    }
+                    or auth_failed
+                )
                 if record["finished"]:
-                    if record["attempts"] and record["attempts"][-1].get(
-                        "http_status"
-                    ) in (401, 403):
+                    if auth_failed and not reopen:
                         raise PermissionError(
-                            "Saved authentication failure; fix the key and use a new record_dir"
+                            "Saved authentication failure; fix the key and explicitly resume"
                         )
+                    if not reopen:
+                        return self.result(record, path)
+                elif self.resume and not reopen:
+                    record["finished"] = True
+                    save_record(path, record)
                     return self.result(record, path)
                 if record["attempts"] and record["attempts"][-1]["status"] == "running":
                     record["attempts"][-1]["status"] = "transport_failed"
                     record["attempts"][-1]["error"] = "ProcessInterrupted"
-                # A resumed question gets a fresh deadline window; downtime is not
-                # charged to the model. The interrupted attempt above still counts.
-                record.setdefault(
+                windows = record.setdefault(
                     "deadline_windows", [{"started_at": record["started_at"]}]
-                ).append(window)
+                )
+                if not any("elapsed_seconds" in previous for previous in windows):
+                    windows[-1]["elapsed_seconds"] = record["elapsed_seconds"]
+                # Explicit resume gets a new attempt budget; ordinary crash recovery
+                # continues the previous budget. All attempts remain in the record.
+                window["attempt_start"] = (
+                    len(record["attempts"])
+                    if self.resume
+                    else windows[-1].get("attempt_start", 0)
+                )
+                windows.append(window)
+                record.update(status="running", finished=False)
             else:
+                window["attempt_start"] = 0
                 record = {
                     "identity": identity,
                     "repeat_index": repeat,
@@ -301,22 +362,24 @@ class SDEChatCompletion(LM):
                     "finished": False,
                 }
             key = self.get_api_key()
-            retryable = {
-                "transport_failed",
-                "protocol_error",
-                "empty",
-                "generation_incomplete",
-            }
+            attempt_start = int(window["attempt_start"])
+            prior_elapsed = sum(
+                previous.get("elapsed_seconds", 0.0)
+                for previous in record["deadline_windows"][:-1]
+            )
             deadline = window["started_at"] + self.config["timeout"]
             while True:
                 attempts = record["attempts"]
-                consumed = sum(not attempt.get("budget_exempt") for attempt in attempts)
-                previous = attempts[-1] if attempts else None
+                round_attempts = attempts[attempt_start:]
+                consumed = sum(
+                    not attempt.get("budget_exempt") for attempt in round_attempts
+                )
+                previous = round_attempts[-1] if round_attempts else None
                 if previous and previous["status"] not in retryable:
                     break
                 if previous and previous.get("budget_exempt"):
                     streak = 0
-                    for earlier in reversed(attempts):
+                    for earlier in reversed(round_attempts):
                         if not earlier.get("budget_exempt"):
                             break
                         streak += 1
@@ -345,7 +408,10 @@ class SDEChatCompletion(LM):
                 except asyncio.TimeoutError:
                     attempt["status"] = "question_timeout"
                 finally:
-                    record["elapsed_seconds"] = time.time() - record["started_at"]
+                    window["elapsed_seconds"] = time.time() - window["started_at"]
+                    record["elapsed_seconds"] = (
+                        prior_elapsed + window["elapsed_seconds"]
+                    )
                     record["status"] = attempt["status"]
                     record["answer"] = attempt.get("answer", "")
                     save_record(path, record)
@@ -360,10 +426,74 @@ class SDEChatCompletion(LM):
                 if record["status"] != "question_timeout":
                     record["status"] = last["status"]
                     record["answer"] = last.get("answer", "")
-            record["elapsed_seconds"] = time.time() - record["started_at"]
+            window["elapsed_seconds"] = time.time() - window["started_at"]
+            record["elapsed_seconds"] = prior_elapsed + window["elapsed_seconds"]
             record["finished"] = True
             save_record(path, record)
             return self.result(record, path)
+
+    def normalize_identity(self, identity: dict[str, Any]) -> dict[str, Any]:
+        config = {
+            key: value
+            for key, value in identity["config"].items()
+            if key not in {"num_concurrent", "timeout", "max_attempts"}
+        }
+        for name, previous in (
+            ("adapter_sha256", self.previous_adapter_sha256),
+            ("runtime_sha256", SDEChatCompletion.previous_adapter_sha256),
+        ):
+            if config.get(name) in {
+                previous,
+                SDEChatCompletion.resume_compatible_sha256,
+            }:
+                config[name] = self.config.get(name)
+        return {**identity, "config": config}
+
+    def prepare_resume(
+        self, requests: list[Instance], payloads: list[dict[str, Any]]
+    ) -> None:
+        self._resume_paths = {}
+        if not self.resume:
+            return
+        stored: dict[str, list[tuple[Path, dict[str, Any]]]] = defaultdict(list)
+        slot_fields = ("task", "doc_id", "request_index", "repeat_index")
+        for path in sorted(self.record_dir.glob("*.json")):
+            if len(path.stem) != 64:
+                continue
+            record = json.loads(path.read_text())
+            identity = record["identity"]
+            stored[digest({key: identity[key] for key in slot_fields})].append(
+                (path, identity)
+            )
+        repeats: dict[tuple, int] = defaultdict(int)
+        for request, payload in zip(requests, payloads):
+            key = (request.task_name, request.doc_id, request.idx, digest(payload))
+            identity = self.normalize_identity(
+                {
+                    "config": self.config,
+                    "task": request.task_name,
+                    "doc_id": request.doc_id,
+                    "request_index": request.idx,
+                    "doc_sha256": digest(request.doc),
+                    "payload": payload,
+                    "repeat_index": repeats[key],
+                }
+            )
+            repeats[key] += 1
+            matches = stored.get(
+                digest({key: identity[key] for key in slot_fields}), []
+            )
+            if len(matches) > 1:
+                raise ValueError(
+                    "Resume found multiple records for one question/draw; use a separate output directory"
+                )
+            if matches:
+                path, saved = matches[0]
+                if self.normalize_identity(saved) != identity:
+                    raise ValueError(
+                        f"Resume experiment mismatch: {path}; keep model, effort, token budget, code and question unchanged"
+                    )
+                self._resume_paths[digest(identity)] = path
 
     def generate_until(
         self, requests: list[Instance], disable_tqdm: bool = False
@@ -375,6 +505,7 @@ class SDEChatCompletion(LM):
         self.record_dir.mkdir(parents=True, exist_ok=True)
         with (self.record_dir / "runner.lock").open("w") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.prepare_resume(requests, payloads)
             return asyncio.run(self.generate_batch(requests, payloads))
 
     async def generate_batch(

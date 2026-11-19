@@ -14,6 +14,7 @@ from aiohttp import web
 
 from lm_eval.models.sde_chat import save_record
 from lm_eval.models.sde_messages import parse_stream
+from lm_eval.models.sde_source_guard import filter_tool_returns
 from lm_eval.models.sde_stream import (
     PRE_RESPONSE_RETRY_STATUSES,
     connect_failed,
@@ -56,6 +57,7 @@ SUMMARY_FIELDS = (
     "helper_evidence",
     "query",
     "upstream_forwarded",
+    "source_filter_count",
     "elapsed_seconds",
 )
 
@@ -352,10 +354,13 @@ class MessagesProxy:
             return web.json_response(
                 {"error": {"message": "Malformed local payload"}}, status=400
             )
+        body, source_filters = filter_tool_returns(body)
         call: dict[str, Any] = {
             "index": len(self.calls) + 1,
             "path": request.path,
             "payload": body,
+            "source_filters": source_filters,
+            "source_filter_count": len(source_filters),
             "status": "running",
         }
         self.calls.append(call)

@@ -195,6 +195,10 @@ def classify(parsed: dict[str, Any], expected_model: str) -> tuple[str, str]:
 class SDEMessages(SDEChatCompletion):
     """Opus Messages profile; reuse locking, deadlines, repeats and retries."""
 
+    previous_adapter_sha256 = (
+        "1d0bcbf385a8b98b9c922351e35f656d71751220d771706117fd9f6073d988a7"
+    )
+
     def __init__(
         self,
         model: str,
@@ -211,6 +215,7 @@ class SDEMessages(SDEChatCompletion):
         batch_size: int = 1,
         max_batch_size: Any = None,
         device: Any = None,
+        resume: bool = False,
     ) -> None:
         if effort not in {"low", "medium", "high", "max"}:
             raise ValueError("Unsupported Messages effort")
@@ -231,6 +236,7 @@ class SDEMessages(SDEChatCompletion):
             batch_size=batch_size,
             max_batch_size=max_batch_size,
             device=device,
+            resume=resume,
         )
         self.config.pop("reasoning_effort")
         self.config.pop("thinking")
@@ -262,7 +268,6 @@ class SDEMessages(SDEChatCompletion):
             "model": self.model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 1.0,
             "output_config": {"effort": self.config["effort"]},
             "stream": True,
         }

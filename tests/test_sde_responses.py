@@ -136,6 +136,101 @@ def stream(items, done=True, crlf=False, multiline=False):
     return result.replace("\n", "\r\n") if crlf else result
 
 
+@pytest.mark.parametrize("agent_mode", [False, True])
+def test_response_metadata_is_preserved_without_changing_the_answer(agent_mode):
+    rows = events()
+    metadata = {
+        "type": "response.metadata",
+        "response_id": "resp_1",
+        "metadata": {"openai_chatgpt_moderation_metadata": {"flagged": False}},
+    }
+    rows.insert(-1, metadata)
+    baseline = parse_stream(stream(events()), agent_mode=agent_mode)
+    parsed = parse_stream(stream(rows), agent_mode=agent_mode)
+    assert parsed["stream_error"] is None
+    assert parsed["terminal_event"] == "response.completed"
+    assert parsed["response"] == baseline["response"]
+    assert classify(parsed, "gpt-6-astra", "max") == (
+        "ok",
+        "<answer>A</answer>",
+    )
+    assert parsed["metadata_events"] == [{**metadata, "sequence_number": 6}]
+    assert parsed["event_counts"]["response.metadata"] == 1
+
+
+@pytest.mark.parametrize("sparse_terminal", [False, True])
+def test_response_metadata_preserves_native_tool_calls(sparse_terminal):
+    rows = native_events(copy.deepcopy(NATIVE_ITEMS[1]))
+    if sparse_terminal:
+        rows[-1]["response"]["output"] = []
+    baseline = parse_stream(
+        stream(rows), agent_mode=True, allow_sparse_terminal=sparse_terminal
+    )
+    metadata = {"type": "response.metadata", "response_id": "resp_1", "metadata": {}}
+    rows.insert(-1, metadata)
+    parsed = parse_stream(
+        stream(rows), agent_mode=True, allow_sparse_terminal=sparse_terminal
+    )
+    assert parsed["stream_error"] is None
+    assert parsed["terminal_event"] == "response.completed"
+    assert parsed["response"] == baseline["response"]
+    assert parsed["output_items"] == baseline["output_items"]
+    assert parsed["metadata_events"][0]["metadata"] == {}
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "missing_metadata",
+        "bad_metadata",
+        "missing_id",
+        "wrong_id",
+        "before_created",
+        "after_terminal",
+        "replayed_sequence",
+    ],
+)
+def test_invalid_response_metadata_is_not_accepted(change):
+    metadata = {"type": "response.metadata", "response_id": "resp_1", "metadata": {}}
+    rows = events()
+    if change == "missing_metadata":
+        metadata.pop("metadata")
+    elif change == "bad_metadata":
+        metadata["metadata"] = []
+    elif change == "missing_id":
+        metadata.pop("response_id")
+    elif change == "wrong_id":
+        metadata["response_id"] = "other_response"
+    index = (
+        0
+        if change == "before_created"
+        else (len(rows) if change == "after_terminal" else 1)
+    )
+    rows.insert(index, metadata)
+    body = stream(rows)
+    if change == "replayed_sequence":
+        body = body.replace('"sequence_number": 1', '"sequence_number": 0')
+    assert (
+        classify(parse_stream(body, agent_mode=True), "gpt-6-astra", "max")[0]
+        == "protocol_error"
+    )
+
+
+def test_response_metadata_does_not_replace_a_missing_terminal_or_a_refusal():
+    metadata = {"type": "response.metadata", "response_id": "resp_1", "metadata": {}}
+    rows = events()[:-1] + [metadata]
+    parsed = parse_stream(stream(rows), agent_mode=True)
+    assert parsed["stream_error"] is None
+    assert classify(parsed, "gpt-6-astra", "max")[0] == "transport_failed"
+    final = response("partial", status="incomplete")
+    final["incomplete_details"] = {"reason": "content_filter"}
+    rows = events(final)
+    rows.insert(-1, metadata)
+    assert classify(
+        parse_stream(stream(rows), agent_mode=True), "gpt-6-astra", "max"
+    ) == ("refusal", "partial")
+
+
 class FakeContent:
     def __init__(self, body, error=None, blocked=False, fragment=False):
         self.body, self.error, self.blocked, self.fragment = (
@@ -226,6 +321,25 @@ def request(model, doc_id=0, messages=None, kwargs=None):
         0,
         ("toy_responses", doc_id, 1),
     )
+
+
+def test_resume_preserves_failed_sse_and_uses_a_new_attempt_file(setup):
+    model, _ = setup([FakeResponse(status=524, body=b"old timeout")], max_attempts=1)
+    first = model.generate_until([request(model)])[0]
+    path = Path(first.metadata["record_path"])
+    old = json.loads(path.read_text())
+    old_stream = Path(old["attempts"][0]["body_path"])
+    before = old_stream.read_bytes()
+    resumed, session = setup([FakeResponse()], resume=True, timeout=120, max_attempts=1)
+    again = resumed.generate_until([request(resumed)])[0]
+    record = json.loads(path.read_text())
+    assert again.metadata["status"] == "ok"
+    assert again.metadata["record_path"] == str(path)
+    assert record["attempts"][:1] == old["attempts"]
+    assert old_stream.read_bytes() == before
+    assert Path(record["attempts"][1]["body_path"]).is_file()
+    assert record["attempts"][1]["body_path"] != str(old_stream)
+    assert len(session.payloads) == 1
 
 
 def record(output):
