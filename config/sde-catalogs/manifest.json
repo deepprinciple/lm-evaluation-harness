@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-10-12",
+  "codex_cli_version": "0.162.1",
+  "instructions_source_model": "gpt-6-astra",
+  "source_artifacts": "sde/results_question/astra_codex_search_smoke_20261012_093551/catalogs",
+  "astra_source_sha256": "efdc8fdf6b392a398150ef26915a9c6306cfd9d59a37d97c3c7a71141ba3804e",
+  "flash_source_sha256": "dc7ccca850a53905962d53dac93071ff23d4ad52b240a598ac6d5d959d036c44",
+  "flash_source_profile_sha256": "3450a7c8050dddceeb08d6e7681fca322cecb8b33901984a5efbc61806e8a166",
+  "model_messages_sha256": "f9a005af40678beac98510005f4bea23b3a14dfcf6052b6698d2ca5e73cfa9b5",
+  "catalogs": {
+    "flash": {
+      "file": "flash.json",
+      "slug": "deepseek-flash",
+      "sha256": "7e542d67a8271c10ba9242f2248fcbac48da0e158f2542b88e8b6f83b8853ecd",
+      "changes": [
+        "remove base_instructions",
+        "replace model_messages with the unmodified Astra model_messages"
+      ]
+    },
+    "astra": {
+      "file": "astra.json",
+      "slug": "gpt-6-astra",
+      "sha256": "efdc8fdf6b392a398150ef26915a9c6306cfd9d59a37d97c3c7a71141ba3804e",
+      "changes": []
+    }
+  }
+}

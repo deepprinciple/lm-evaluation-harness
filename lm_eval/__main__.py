@@ -99,6 +99,13 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Number of examples in few-shot context",
     )
     parser.add_argument(
+        "--repeats",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Override independent generations per document for generate_until tasks. Requires fresh request contexts.",
+    )
+    parser.add_argument(
         "--batch_size",
         "-b",
         type=str,
@@ -452,6 +459,7 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
         model_args=args.model_args,
         tasks=task_names,
         num_fewshot=args.num_fewshot,
+        repeats=args.repeats,
         batch_size=args.batch_size,
         max_batch_size=args.max_batch_size,
         device=args.device,

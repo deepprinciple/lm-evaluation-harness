@@ -4,7 +4,6 @@ task:
   - exact_match_astrophysics_cosmology
   - exact_match_quantum_information
   - exact_match_condensed_matter_physics
-  - exact_match_probability_statistics
   # Multiple Choice Tasks
   - multiple_choice_astrophysics_cosmology
   - multiple_choice_quantum_information

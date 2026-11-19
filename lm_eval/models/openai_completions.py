@@ -363,7 +363,7 @@ class DeepSeekChatCompletion(LocalChatCompletion):
         output = {
             "messages": messages,
             "model": self.model,
-            "max_completion_tokens": max_tokens,
+            "max_tokens": max_tokens,
             "temperature": temperature,
             "stop": stop[:4],
             "seed": seed,
